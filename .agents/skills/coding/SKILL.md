@@ -669,12 +669,38 @@ and the C-shaped one goes.
 
 ## Remaining userspace C
 
+These rules apply only to C maintained by Shirudo: BPF programs,
+remaining userspace helpers, and C test or build helpers. They do not
+apply to Rust or vendored sources.
+
 The remaining C helpers under `util/` and `tools/shirudo-build/` keep
 the kernel C style above. Keep their headers, tests, and C callers in
 sync when changing an interface. Check the return from `strscpy()` and
 `strsprintf()`, release allocations on every error path, and use the
 existing zeroing helpers for secrets. New shared userspace logic belongs
 in Rust.
+
+### Coccinelle and sparse
+
+- `testing/coccinelle/banned.cocci` reports C calls to functions Shirudo
+does not use, including `rand()` and its kin, `strtok()`, temporary-file
+functions, `vfork()`, `alloca()`, `setjmp()` and `longjmp()`, obsolete
+time and signal functions, user and group database lookups, and
+`abort()` or `assert()` outside tests. Use `getrandom()` for secrets,
+reentrant (`_r`) forms for hidden state, and `nanosleep()` or
+`sigaction()` for obsolete interfaces. Test sources may use functions
+they exercise.
+- Use `strscpy_literal()` to copy a string literal into a fixed array.
+It rejects a literal that does not fit at build time. The
+`literal_strscpy.cocci` rule reports a literal passed to `strscpy()`.
+- Do not cast an unused parameter to `void`. The build disables
+`-Wunused-parameter`; remove unused variables, and check results marked
+`__must_check`.
+- For multi-byte fields in C formats and protocols, use the `__le16`,
+`__le32`, `__le64`, `__be16`, `__be32`, and `__be64` types and convert
+between host and wire order with `include/shirudo/byteorder.h`. `make
+sparse` checks these conversions in maintained C sources; it leaves
+vendored sources out.
 
 ## Check
 
