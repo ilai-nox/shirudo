@@ -2208,10 +2208,10 @@ U13 A revoked signer's historical vouches remain valid
       planned overlap is not sufficient compromise recovery by itself.
 
 U15 Certificates are fetched without a pin
-   :Affects: ``tools/gen-initrd/install.sh --cert <url>`` and
-      ``shirudo bpm key add oci://...``, which image mode refuses on a
-      target.
-   :Consequence: The certificate installed is whatever the URL served.
+   :Affects: ``shirudo bpm key add oci://...``, which image mode refuses
+      on a target.
+   :Consequence: The certificate installed is whatever the registry
+      served.
    :Status: Confirmed in code.
    :Meanwhile: Pass a local file after checking its fingerprint.
 
@@ -2351,7 +2351,8 @@ The deployer:
 - Uses only ML-DSA-87 certificates from ``shirudo genkey``, repository
   certificates included (U4)
 - Treats the TPM owner password as known to root (R20)
-- Checks the fingerprint of every certificate it installs (U15)
+- Checks the fingerprint of every certificate it installs, and passes
+  ``install.sh --cert-sha256`` with a certificate URL (U15)
 - Watches the size of the eventlog (U6) and the keepalives, and treats a
   ``tampered`` status as an incident to understand, not a condition to
   retry (:doc:`/operate/troubleshoot/incident-tampered`)

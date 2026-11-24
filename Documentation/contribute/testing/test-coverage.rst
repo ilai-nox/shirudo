@@ -135,7 +135,7 @@ signed config image.
        path of the Debian one
    * - ``t1006-gen-initrd-cli``
      - Initrd generator and installer options, the installer's
-       ``--dry-run`` plan
+       ``--dry-run`` plan, the SHA-256 a certificate URL needs
    * - ``t1007-test-vm-cli``
      - Test VM scripts: kernel artifact selection, host dependencies, arm64
        boot settings, the bundle stamp, the build container, serve mode,
