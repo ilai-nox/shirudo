@@ -109,53 +109,11 @@ package for `bpm info`.
 
 ## Coding conventions
 
-Rust takes the layout `rustfmt` gives it, as the kernel's Rust does,
-and all C, including the remaining userspace helpers, follows the kernel coding style,
-`Documentation/contribute/code/coding-style.rst`; the `coding` skill,
-which the section above has you load first, gives these conventions
-with their reasons, the helpers to use and the commit message that
-carries a change.
-
-- Most userspace is the `shirudo` crate under `rust/`, which every
-  binary links: the commands in `rust/src/builtin/`, what more than one
-  place needs in `rust/src/util/`, and the operator's builder and
-  signer in `rust/src/shirudo_build/`. Each binary's `main()` is a
-  small `no_std` object of its own, as `shirudo.rs` is, that hands the
-  command line to the crate. The crate takes std, a crate only as the
-  dependency rules below admit one, vendored and pinned so that cargo
-  builds offline, and what those lack through the declarations of
-  `rust/src/sys/`. It builds with overflow checks and LTO, unwinds only
-  so that a Lua error can cross a Rust callback, logs a panic and
-  aborts, and allocates through a global allocator that zeroes memory
-  when it hands it out and scrubs it when it is freed. Every `unsafe`
-  block says why it is sound in a `// SAFETY:` comment, which clippy
-  enforces.
-- Use the helpers of `rust/src/` over libc and open code:
-  `parse_u64()` and its kin for numbers, which refuse the `+` that
-  `str::parse()` takes, checked arithmetic for sizes, `strscpy()` with
-  its `-E2BIG` checked, `explicit_bzero()` and `memneq_explicit()` for
-  secrets, `rust/src/util/json/` for all JSON and `rust/src/log.rs` for
-  all logging. Code that a second place needs moves into
-  `rust/src/util/` with unit cases rather than being copied.
-- Rust is safe at its signatures: a raw pointer only in an `unsafe fn`
-  at the edge with C, a failure as a `Result` whose error is a negative
-  errno, what is acquired released by `Drop`, nothing from outside
-  indexed, unwrapped or cast with `as` unchecked, and no `static mut`.
-  C-shaped code a change touches is brought to these in the same
-  series; the `coding` skill gives the rules with their reasons.
-  Internal names carry no `shirudo_` prefix.
-- C zero-initialises with `= {}`, spells integers `__u8` to `__u64` and
-  `__s8` to `__s64`, names a return code `ret` and puts locals in
-  reverse-Christmas-tree order. No `(void)` casts.
-- Write self-documenting code: names that say what a function does and
-  what a value holds, and small functions, so that comments stay rare. A
-  file starts with its SPDX line, the copyright and at most five lines of
-  purpose, `//!` lines in Rust; in code a comment says only the why the
-  code cannot, never what it does or how it came to be. Block comments
-  follow section 8 of the style, and in C `//` is for SPDX alone.
-- Userspace is BSD-2-Clause. Every file compiled into a BPF object, and
-  every Lua decoder, is `GPL-2.0 OR BSD-2-Clause`, and a BPF program
-  declares `char _license[] SEC("license") = "Dual BSD/GPL";`. No emojis.
+The `coding` skill at `.agents/skills/coding/SKILL.md` is the reference
+for Rust and C style, helper APIs, and commit messages. The "Before you
+write code" section above requires reading and following it. This file
+holds architecture, invariants, and project policies; the skill explains
+how to write Rust and C.
 
 ## Commits
 

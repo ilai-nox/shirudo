@@ -6,14 +6,15 @@ description: Write or change shirudo's code, the Rust of its userspace and the C
 # Coding
 
 Most of shirudo's userspace is Rust, the `shirudo` crate under
-`rust/`, laid out as `rustfmt` lays it out. Its BPF programs and
-remaining userspace helpers are C and follow the kernel's coding style, `Documentation/contribute/code/coding-style.rst`:
-tabs eight wide, 80 columns where it reads well and never past 100, K&R
-braces. Both keep functions short and doing one thing. AGENTS.md lists
-the project's conventions in short; this skill gives them with their
+`rust/`, laid out by `rustfmt`. Its BPF programs and remaining C test
+and build helpers follow the kernel's coding style,
+`Documentation/contribute/code/coding-style.rst`: tabs eight wide,
+80 columns where it reads well and never past 100, K&R braces, short
+functions that do one thing. AGENTS.md points to this skill as the
+reference for coding conventions; the skill gives them with their
 reasons. Read the code around a change first and write like it, and
-write what more than one place needs once, in `rust/src/util/`, or in
-`bpf/lib/` for the BPF programs.
+write shared Rust logic in `rust/src/util/` and shared BPF code in
+`bpf/lib/`.
 
 ## Write code that explains itself
 
