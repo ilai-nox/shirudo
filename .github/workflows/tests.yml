@@ -6,6 +6,8 @@ on:
       - main
       - rusting
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       kernel_run_id:
@@ -42,7 +44,7 @@ jobs:
       - name: Check whether the kernel inputs changed
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           KERNEL_RUN_ID: ${{ inputs.kernel_run_id }}
         run: sh .github/scripts/select-test-kernel.sh
 
