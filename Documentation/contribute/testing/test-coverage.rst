@@ -722,7 +722,8 @@ signed config image.
        control characters of a README and of a member name shown as
        ``?`` by ``info``, ``info upatches`` and ``info data``
    * - ``t7003-bpm-key``
-     - ``bpm key`` from files and OCI references, ``bpm pull``, which
+     - ``bpm key`` from files and OCI references, the fingerprint
+       ``key add`` checks and an OCI reference needs, ``bpm pull``, which
        replaces no file, not even after a failed digest, and names none
        after a layer title that is not a package name
    * - ``t7004-bpm-repo-update``
@@ -1460,8 +1461,6 @@ resolve. They change when that threat is resolved:
 
 - ``t2003`` and ``t5003`` assert that a revoked signer's earlier
   vouches stay valid.
-- ``t7003`` adds a certificate from an OCI reference without a
-  fingerprint to compare it with.
 
 Commands and procedures
 ~~~~~~~~~~~~~~~~~~~~~~~
