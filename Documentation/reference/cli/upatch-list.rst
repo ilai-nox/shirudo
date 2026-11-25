@@ -29,8 +29,8 @@ Description
 ``init`` restores at boot, and the pin directories under
 ``/run/shirudo/bpffs/upatches/``:
 
-- one row per archived artifact: its name, ``LOADED`` ``yes`` or
-  ``no``, its type (``load`` or ``unload``), its payload kind (``bpf``
+- one row per archived artifact: its name, ``LOADED`` ``yes``, ``no``
+  or ``?``, its type (``load`` or ``unload``), its payload kind (``bpf``
   or ``java``) and the first 16 hexadecimal characters of its payload
   digest. A Java upatch is loaded while its installed jar is the
   archived one.
@@ -38,6 +38,10 @@ Description
   ``not archived, gone at reboot``
 
 An archived artifact that cannot be read is listed as ``unreadable``.
+An archived upatch whose pin directory cannot be read, for a reason
+other than its absence, has ``LOADED`` ``?``: ``list`` reports ``upatch
+list: cannot read the pins of <name>`` with the error, lists the other
+upatches and exits 1.
 The ``NAME`` column is as wide as the longest name it holds, and 24
 characters at least.
 
@@ -58,7 +62,9 @@ Options
      - Print one JSON object: ``schema`` (1) and ``upatches``, a list of
        ``name``, ``type``, ``payload_type``, ``loaded``, ``archived`` and
        ``payload_sha256``. A upatch without an archive has ``type`` and
-       ``payload_sha256`` ``null`` and no ``payload_type``.
+       ``payload_sha256`` ``null`` and no ``payload_type``. ``loaded`` is
+       ``null`` for an archived upatch whose pin directory cannot be
+       read.
 
 Exit status
 -----------
@@ -72,7 +78,9 @@ Exit status
    * - 0
      - The list was printed.
    * - 1
-     - The JSON document could not be built.
+     - The pin directory of an archived upatch could not be read: the
+       list was printed, with ``LOADED`` ``?`` for that upatch. Or the
+       JSON document could not be built.
    * - 2
      - A usage error: an unknown option, ``--json`` given twice, or an
        argument.

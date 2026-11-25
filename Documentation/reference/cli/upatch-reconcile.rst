@@ -57,7 +57,9 @@ upatch, not the devices it reaches.
 
 Every upatch is checked before any is attached. An archive that differs
 from what the records say was loaded stops the pass with ``tampered``,
-and no upatch gets a new link until that is resolved. Pins of a load
+and no upatch gets a new link until that is resolved. A pin directory
+that cannot be read, for a reason other than its absence, stops the pass
+with ``unknown`` in ``pre_flight``. Pins of a load
 still in progress, or of one that stopped before its record, are skipped,
 as is a upatch unloaded or replaced during the pass; ``status`` reports
 a load that stopped under ``UpatchesMeasured``.

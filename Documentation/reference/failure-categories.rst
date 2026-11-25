@@ -289,7 +289,9 @@ Categories
        cannot be read, which leave ``eventlog.max_bytes`` unknown, or the
        ``lsm_link`` pin or, from ``upatch reconcile``, an XDP program pin
        that cannot be opened for a reason that says nothing about the pin,
-       such as ``EMFILE`` or ``ENOMEM``.
+       such as ``EMFILE`` or ``ENOMEM``, or the pin directory of a upatch
+       that cannot be read for a reason other than its absence: the pass
+       stops before it attaches anything.
      - Read ``message`` and the journal. For ``persist``, check the space
        on the file system that holds ``/var/lib/shirudo``.
 

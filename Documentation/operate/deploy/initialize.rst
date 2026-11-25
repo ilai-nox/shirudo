@@ -285,6 +285,11 @@ the same upatch again. The usual cause is a kernel on which the upatch
 no longer loads, or a device that an XDP upatch selects whose driver
 refuses it. :ref:`boot-restore-lockout` describes the way out.
 
+Init stops the same way, with ``boot-restore: cannot read the pins of
+<name>`` and the error, when it cannot read the pin directory of an
+archived upatch to tell whether it is loaded already. It does not
+restore that upatch.
+
 Register binding failures
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
