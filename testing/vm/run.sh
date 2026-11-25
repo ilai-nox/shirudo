@@ -1323,7 +1323,11 @@ cleanup()
 		fi
 	elif [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then
 		log "preserved VM state: $RUN_DIR"
-		log "warning: the guest overlay contains an ephemeral signing key"
+		# Only the operator VM sees the signing key; a target's overlay
+		# never holds one.
+		if [[ "$VM_ROLE" == operator ]]; then
+			log "warning: the guest overlay contains an ephemeral signing key"
+		fi
 	fi
 }
 trap cleanup EXIT
