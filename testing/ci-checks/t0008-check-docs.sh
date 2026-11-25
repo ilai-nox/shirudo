@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Authors of shirudo
 #
-# t0008 -- .github/scripts/check-docs.sh: the whole of each field of a
+# t0008 -- .github/scripts/check-docs.sh: the options of a console
+# example on every line of its command, the whole of each field of a
 # threat's fact box, a hook by its section, the programs and counters no
 # threat names, the source files a proof reads or the coverage page
 # lists as read by none, and a figure against its TikZ source, on a
@@ -35,6 +36,7 @@ good() {
 	rm -rf "$R" && mkdir -p "$R" && git init -q "$R" &&
 	put shirudo.rs 'fn main() {}' &&
 	put rust/src/builtin/upatch.rs 'fn upatch() {}' &&
+	put rust/src/builtin/status.rs 'const JSON_OPT: &[u8] = b"--json";' &&
 	put rust/src/builtin/init/mod.rs 'fn init() {}' &&
 	put tools/shirudo-build/shirudo-build.rs 'fn main() {}' &&
 	put rust/src/shirudo_build/mod.rs 'fn build() {}' &&
@@ -84,6 +86,33 @@ refuses() {
 
 test_expect_success 'a tree whose fields continue on a second line passes' '
 	good && check
+'
+
+# A page whose console block holds the given lines.
+console() {
+	put Documentation/start/run.rst '.. code-block:: console' '' "$@"
+}
+
+test_expect_success 'an option on a continuation line of a command is checked' '
+	good && console "   \$ shirudo status \\" "       --json" &&
+	check &&
+	good && console "   \$ shirudo status \\" "       --bogus" &&
+	refuses "no parser accepts --bogus" &&
+	good && console "   \$ shirudo status \\  " "       --bogus" &&
+	refuses "no parser accepts --bogus"
+'
+
+test_expect_success 'only the lines of a shirudo command are checked' '
+	good && console "   \$ shirudo status --json" "   --bogus" &&
+	check &&
+	good && console "   \$ make --bogus \\" "       --bogus" &&
+	check &&
+	good && console "   \$ make \\" "   \$ shirudo status --bogus" &&
+	refuses "no parser accepts --bogus" &&
+	good && console "   \$ shirudo status \\" "   \$ make --bogus" &&
+	check &&
+	good && console "   \$ shirudo status \\" "" "   --bogus" &&
+	check
 '
 
 test_expect_success 'a hook on a continuation line is checked, by its section' '
