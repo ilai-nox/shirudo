@@ -45,10 +45,11 @@ const TAMPER_PIN: &CStr = c"/run/shirudo/bpffs/tamper";
 const INTEGRITY_PIN: &CStr = c"/run/shirudo/bpffs/integrity";
 const TPM_COMMAND_LINK_PIN: &CStr = c"/run/shirudo/bpffs/bpf2_tpm_command_link";
 /// What a failed run removes besides its links: every map it pinned.
-const MAP_PINS: [&CStr; 8] = [
+const MAP_PINS: [&CStr; 9] = [
     IDENTITY_PIN,
     TAMPER_PIN,
     INTEGRITY_PIN,
+    c"/run/shirudo/bpffs/unlink_grant",
     c"/run/shirudo/bpffs/task_authority",
     c"/run/shirudo/bpffs/task_policy",
     c"/run/shirudo/bpffs/socket_policy",
