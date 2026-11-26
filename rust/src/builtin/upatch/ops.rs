@@ -19,13 +19,14 @@ use core::ffi::{CStr, c_char, c_int};
 use std::ffi::CString;
 use std::ffi::OsStr;
 use std::fs;
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 
 use super::list::{BPFFS_UPATCHES_DIR, UPATCHES_DIR};
 use super::{hex, log_audit, log_err, log_info, log_warn, strerr};
 use crate::errno::{
-    EACCES, EBADMSG, EINVAL, ENAMETOOLONG, ENODEV, ENOENT, ENOSPC, EOPNOTSUPP, EPERM, ESTALE,
+    EACCES, EBADMSG, EINVAL, ENAMETOOLONG, ENODEV, ENOENT, ENOSPC, EOPNOTSUPP, EPERM, EPROTO,
+    ESTALE,
 };
 use crate::heap::xfree;
 use crate::sys::libc::{O_DIRECTORY, O_RDONLY, close, errno, getxattr};
@@ -59,6 +60,11 @@ pub(super) const LSM_LINK_PIN: &CStr = c"/run/shirudo/bpffs/lsm_link";
 const UPATCH_FILE_MAX: usize = 16 * 1024 * 1024;
 const DIGEST_LEN: usize = 32;
 const KERNEL_ABI_DETAIL_MAX: usize = 256;
+/// Private bpffs directory requests from include/shirudo/enforcement.h.
+const PIN_GRANT_BEGIN: libc::c_ulong = 0x5352_0002;
+const PIN_GRANT_END: libc::c_ulong = 0x5352_0003;
+const PIN_GRANT_ACK: c_int = 1003;
+const BPFFS_REL_PREFIX: &[u8] = b"/run/shirudo/bpffs/";
 
 /// What a load or an unload is asked to do.
 #[derive(Default)]
@@ -358,6 +364,50 @@ fn pinned(name: &[u8]) -> Result<bool, c_int> {
     }
 }
 
+/// A task-local permission to delete pins below one open upatch directory.
+/// The descriptor keeps its inode number from being reused until release.
+pub(super) struct PinGrant(OwnedFd);
+
+impl PinGrant {
+    pub(super) fn open(name: &[u8]) -> Result<Self, c_int> {
+        let path = crate::util::upatch_resolve::pin_path(name, &[])?;
+        let rel = path
+            .to_bytes()
+            .strip_prefix(BPFFS_REL_PREFIX)
+            .ok_or(-EINVAL)?;
+        let rel = CString::new(rel).map_err(|_| -EINVAL)?;
+        let root =
+            identity::bpffs_root_open().map_err(|e| if e == -ENOENT { -ENODEV } else { e })?;
+        let fd = open_beneath_same_mount(root.as_raw_fd(), &rel, O_RDONLY | O_DIRECTORY)?;
+        Self::request(fd.as_fd(), PIN_GRANT_BEGIN)?;
+        Ok(Self(fd))
+    }
+
+    fn request(fd: BorrowedFd<'_>, command: libc::c_ulong) -> Result<(), c_int> {
+        // SAFETY: the descriptor is an open directory and the request has no pointer argument.
+        let ret = unsafe { libc::ioctl(fd.as_raw_fd(), command, 0) };
+        if ret >= 0 {
+            return Err(-EPROTO);
+        }
+        let err = errno();
+        if err == PIN_GRANT_ACK {
+            Ok(())
+        } else {
+            Err(-err)
+        }
+    }
+}
+
+impl Drop for PinGrant {
+    fn drop(&mut self) {
+        if Self::request(self.0.as_fd(), PIN_GRANT_END).is_err() {
+            log_err(b"upatch: cannot release pin deletion authority; terminating");
+            // SAFETY: an unreleased task grant must not survive this process.
+            unsafe { libc::_exit(1) };
+        }
+    }
+}
+
 /// Removes the entries of `dir`, none a directory, and then `dir`.
 fn wipe(dir: &[u8]) -> c_int {
     let entries = match fs::read_dir(os(dir)) {
@@ -381,9 +431,10 @@ fn wipe(dir: &[u8]) -> c_int {
 /// last reference, which detaches.
 pub(super) fn remove_pins(name: &[u8]) -> c_int {
     let dir = pin_dir(name);
-    if let Err(e) = fs::metadata(os(&dir)) {
-        return io_err(&e);
-    }
+    let _grant = match PinGrant::open(name) {
+        Ok(grant) => grant,
+        Err(err) => return err,
+    };
     for sub in [&b"/maps"[..], b"/serializers"] {
         let sub = [&dir[..], sub].concat();
         if fs::metadata(os(&sub)).is_ok() {

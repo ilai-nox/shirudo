@@ -304,6 +304,7 @@ impl Attached {
             shirudo_tamper: &m.shirudo_tamper,
             shirudo_task_policy: &m.shirudo_task_policy,
             shirudo_sock_policy: &m.shirudo_sock_policy,
+            shirudo_unlink_grant: &m.shirudo_unlink_grant,
         };
         let obj = match seal::load(&shared) {
             Ok(obj) => obj,

@@ -15,7 +15,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 
 use super::loader::{AttachError, trust_anchor, xdp_attach_one};
-use super::ops::{LSM_LINK_PIN, fail, finish};
+use super::ops::{LSM_LINK_PIN, PinGrant, fail, finish};
 use super::{log_audit, log_err, log_info, log_warn, pin_category, strerr};
 use crate::errno::{EACCES, ENAMETOOLONG, ENODATA, ENOENT, EOVERFLOW, EPERM, ESTALE};
 use crate::util::bpf_info::{Info, LINK_INFO_SIZE};
@@ -261,6 +261,10 @@ fn scan_links(name: &[u8], collect: bool, scan: &mut Scan) -> c_int {
         if info.u32_at(LINK_TYPE) == BPF_LINK_TYPE_XDP && info.u32_at(LINK_XDP_IFINDEX) == 0 {
             scan.dead = true;
             if collect {
+                let _grant = match PinGrant::open(name) {
+                    Ok(grant) => grant,
+                    Err(err) => return err,
+                };
                 if let Err(e) = std::fs::remove_file(OsStr::from_bytes(pin.to_bytes())) {
                     return -e.raw_os_error().unwrap_or(ENOENT);
                 }

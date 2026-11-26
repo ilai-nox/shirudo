@@ -23,7 +23,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixDatagram;
 
-use super::ops::{fail, remove_pins};
+use super::ops::{PinGrant, fail, remove_pins};
 use super::{log_audit, log_err, log_info, log_warn, strerr};
 use crate::errno::{
     E2BIG, EACCES, EBADMSG, EBUSY, EEXIST, EINVAL, EIO, EKEYREJECTED, ENAMETOOLONG, ENODATA,
@@ -924,6 +924,7 @@ fn attach_and_pin(cx: &Ctx, name: &[u8], specs: &[ProgSpec]) -> Result<(), Attac
     let serializers = [dir, b"/serializers"].concat();
     let mut pinned: Vec<CString> = Vec::new();
     let (mut made_dir, mut made_serializers) = (false, false);
+    let mut _grant: Option<PinGrant> = None;
     let ret = (|| -> Result<(), AttachError> {
         let devices = if has_xdp {
             netns_initial()?;
@@ -936,6 +937,7 @@ fn attach_and_pin(cx: &Ctx, name: &[u8], specs: &[ProgSpec]) -> Result<(), Attac
         made_dir = mkdir_if_absent(dir).inspect_err(|&e| {
             log_err(&[&b"mkdir "[..], dir, b": ", strerr(e)].concat());
         })?;
+        _grant = Some(PinGrant::open(name).map_err(|e| AttachError::Errno(-e))?);
         let attach_count = specs.iter().filter(|s| s.role == ROLE_ATTACH).count();
         let (mut attach_seen, mut numbered) = (0u32, 0u32);
         let mut test = None;
