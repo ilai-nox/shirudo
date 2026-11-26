@@ -5,7 +5,8 @@
 //! bound to this boot and anchored in a PCR, after systemd's NvPCR, and
 //! the digests every measuring path shares.
 
-use core::ffi::{CStr, c_int, c_void};
+use core::ffi::{CStr, c_int};
+use openssl::hash::{Hasher, MessageDigest};
 
 use crate::errno::{
     E2BIG, EACCES, EEXIST, EINVAL, EIO, EKEYREJECTED, ENODEV, ENOENT, EPROTO, text,
@@ -14,9 +15,7 @@ use crate::sys::libc::scrub;
 use crate::sys::tss2::NV_WRITTEN;
 use crate::text::{cstr, strsprintf};
 use crate::util::config::{self, Scrubbed};
-use crate::util::crypto_openssl::{
-    Sha256Ctx, sha256_final, sha256_free, sha256_init, sha256_into, sha256_update,
-};
+use crate::util::crypto_openssl::sha256_into;
 use crate::util::eventlog::{EventlogInit, NV_INDEX, boot_init};
 use crate::util::initrd::in_initrd;
 use crate::util::nv_writer;
@@ -152,42 +151,15 @@ pub(crate) fn memneq_explicit(a: &[u8], b: &[u8]) -> bool {
     neq != 0
 }
 
-/// SHA-256 of the `a_len` bytes at `a` and then, if any, the `b_len` at
-/// `b`, into `out`, or zeros and the error: sha256_2().
-///
-/// # Safety
-///
-/// `a` and `b` hold their lengths' bytes and `out` has room for a
-/// digest.
-pub(crate) unsafe fn sha256_2(
-    a: *const c_void,
-    a_len: usize,
-    b: *const c_void,
-    b_len: usize,
-    out: *mut u8,
-) -> c_int {
-    let mut ctx = Sha256Ctx::new();
-    // SAFETY: the context here.
-    let mut ret = unsafe { sha256_init(&mut ctx) };
-
-    if ret == 0 {
-        // SAFETY: the context begun, the caller's bytes and room.
-        unsafe {
-            ret = sha256_update(&mut ctx, a, a_len);
-            if ret == 0 && b_len != 0 {
-                ret = sha256_update(&mut ctx, b, b_len);
-            }
-            if ret == 0 {
-                ret = sha256_final(&mut ctx, out);
-            }
-            sha256_free(&mut ctx);
-        }
+/// SHA-256 of `a` followed by `b`, without copying either input.
+pub(crate) fn sha256_parts(a: &[u8], b: &[u8]) -> Result<[u8; DIGEST_LEN], c_int> {
+    let mut hash = Hasher::new(MessageDigest::sha256()).map_err(|_| -EIO)?;
+    hash.update(a).map_err(|_| -EIO)?;
+    if !b.is_empty() {
+        hash.update(b).map_err(|_| -EIO)?;
     }
-    if ret != 0 {
-        // SAFETY: the caller's room for a digest.
-        unsafe { out.write_bytes(0, DIGEST_LEN) };
-    }
-    ret
+    let digest = hash.finish().map_err(|_| -EIO)?;
+    (*digest).try_into().map_err(|_| -EIO)
 }
 
 /// The digest of `parts` one after the other into `out`, or zeros and

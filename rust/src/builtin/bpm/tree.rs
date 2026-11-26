@@ -29,7 +29,7 @@ use crate::util::bpm_tree_state::{
     selector_matches, state_read, state_write,
 };
 use crate::util::chain::{
-    chain_bound, chain_extend, chain_tree_event, history_step, memneq_explicit, sha256_2,
+    chain_bound, chain_extend, chain_tree_event, history_step, memneq_explicit, sha256_parts,
 };
 use crate::util::eventlog;
 use crate::util::hex::sha256_digest_encode;
@@ -66,19 +66,7 @@ fn hex32(text: &[u8]) -> Option<[u8; 32]> {
 
 /// SHA-256 over `a` and then `b`.
 fn hash2(a: &[u8; 32], b: &[u8; 32]) -> Result<[u8; 32]> {
-    let mut out = [0; 32];
-
-    // SAFETY: two digests and room for one.
-    status(unsafe {
-        sha256_2(
-            a.as_ptr().cast(),
-            32,
-            b.as_ptr().cast(),
-            32,
-            out.as_mut_ptr(),
-        )
-    })?;
-    Ok(out)
+    sha256_parts(a, b)
 }
 
 fn lossy(b: &[u8]) -> String {

@@ -39,7 +39,7 @@ use crate::util::bpf_sys::{
     Attr, BPF_MAP_CREATE, BPF_MAP_FREEZE, BPF_MAP_UPDATE_ELEM, BPF_OBJ_PIN, BPF_PROG_LOAD,
     BPF_RAW_TRACEPOINT_OPEN, bpf_obj_get, link_create, prog_test_run,
 };
-use crate::util::chain::{memneq_explicit, sha256_2};
+use crate::util::chain::{memneq_explicit, sha256_parts};
 use crate::util::crypto_openssl::sha256_into;
 use crate::util::elf_target;
 use crate::util::identity;
@@ -1611,30 +1611,22 @@ pub(crate) fn apply(
     // pin xattr, the register event and the unload match record, so a
     // header value that is not SHA-256(insns || data) is refused even
     // when signed.
-    let mut digest = [0u8; 32];
-    // SAFETY: the two sections, and room for the digest.
-    let err = unsafe {
-        sha256_2(
-            insns.as_ptr().cast(),
-            insns.len(),
-            data.as_ptr().cast(),
-            data.len(),
-            digest.as_mut_ptr(),
-        )
+    let digest = match sha256_parts(insns, data) {
+        Ok(digest) => digest,
+        Err(err) => {
+            log_err(
+                &[
+                    &b"upatch: cannot hash the payload of '"[..],
+                    name,
+                    b"': ",
+                    strerr(-err),
+                ]
+                .concat(),
+            );
+            rep.fail(c"parse", c"unknown", -err, b"payload hash failed");
+            return Err(());
+        }
     };
-    if err != 0 {
-        log_err(
-            &[
-                &b"upatch: cannot hash the payload of '"[..],
-                name,
-                b"': ",
-                strerr(-err),
-            ]
-            .concat(),
-        );
-        rep.fail(c"parse", c"unknown", -err, b"payload hash failed");
-        return Err(());
-    }
     if memneq_explicit(&digest, &h.payload_sha256) {
         log_err(b"upatch: payload_sha256 does not match signed content (insns || data); refusing");
         rep.fail(c"parse", c"parser_rejected", 0, b"payload_sha256 mismatch");

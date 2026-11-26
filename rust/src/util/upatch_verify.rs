@@ -16,7 +16,7 @@ use crate::errno::{
     E2BIG, EBADMSG, EIO, EKEYREJECTED, EMFILE, ENAMETOOLONG, ENFILE, ENODEV, ENOENT, ENOMEM,
     ESTALE, EXDEV,
 };
-use crate::util::chain::{memneq_explicit, sha256_2};
+use crate::util::chain::{memneq_explicit, sha256_parts};
 use crate::util::measured::MeasuredSet;
 use crate::util::upatch::{ATTACH_XDP, ProgSpec, ROLE_ATTACH, Specs, TYPE_JAVA, Upatch};
 use crate::util::upatch_pins::{
@@ -56,20 +56,7 @@ fn archive_path(name: &[u8]) -> Result<CString, c_int> {
 /// payload_sha256 claims and the pin directory, the register and an
 /// unload directive record.
 pub(crate) fn payload_digest(u: &Upatch) -> Result<[u8; PAYLOAD_HASH_LEN], c_int> {
-    let (loader, data) = (u.loader(), u.data());
-    let mut out = [0u8; PAYLOAD_HASH_LEN];
-    // SAFETY: the open container's loader and data, and room for the
-    // digest.
-    let ret = unsafe {
-        sha256_2(
-            loader.as_ptr().cast(),
-            loader.len(),
-            data.as_ptr().cast(),
-            data.len(),
-            out.as_mut_ptr(),
-        )
-    };
-    if ret != 0 { Err(ret) } else { Ok(out) }
+    sha256_parts(u.loader(), u.data())
 }
 
 fn java_sections_complete(u: &Upatch) -> bool {

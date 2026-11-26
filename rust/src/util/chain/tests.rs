@@ -1,56 +1,20 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Authors of shirudo
 
-use core::ptr;
-
 use super::*;
-use crate::util::crypto_openssl::sha256_buffer;
 
-/// SHA-256 of `data`.
+/// SHA-256 of `data` for the expected event values.
 fn sha256(data: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    // SAFETY: the bytes and room for a digest.
-    let ret = unsafe { sha256_buffer(data.as_ptr().cast(), data.len(), out.as_mut_ptr()) };
-    assert_eq!(ret, 0);
-    out
+    crate::util::crypto_openssl::sha256(data).unwrap()
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "OpenSSL SHA-256 is foreign code")]
-fn sha256_2_hashes_the_concatenation() {
-    let mut two = [0u8; 32];
-
-    // SAFETY: the bytes of each and room for a digest.
-    unsafe {
-        assert_eq!(
-            sha256_2(
-                b"ab".as_ptr().cast(),
-                2,
-                b"c".as_ptr().cast(),
-                1,
-                two.as_mut_ptr()
-            ),
-            0
-        );
-        assert_eq!(two, sha256(b"abc"));
-        assert_eq!(
-            sha256_2(b"abc".as_ptr().cast(), 3, ptr::null(), 0, two.as_mut_ptr()),
-            0
-        );
-    }
-    assert_eq!(two, sha256(b"abc"));
-}
-
-/// A failure must be reported, not left to a zeroed digest to mismatch.
-#[test]
-#[cfg_attr(miri, ignore = "OpenSSL SHA-256 is foreign code")]
-fn sha256_2_reports_a_failure() {
-    let mut out = [0xffu8; 32];
-
-    // SAFETY: no first part, which it refuses, and room for a digest.
-    let ret = unsafe { sha256_2(ptr::null(), 3, b"c".as_ptr().cast(), 1, out.as_mut_ptr()) };
-    assert_ne!(ret, 0);
-    assert_eq!(out, [0; 32]);
+fn sha256_parts_hashes_the_concatenation() {
+    assert_eq!(sha256_parts(b"ab", b"c"), Ok(sha256(b"abc")));
+    assert_eq!(sha256_parts(b"abc", b""), Ok(sha256(b"abc")));
+    assert_eq!(sha256_parts(b"", b"abc"), Ok(sha256(b"abc")));
+    assert_eq!(sha256_parts(b"", b""), Ok(sha256(b"")));
 }
 
 #[test]
@@ -177,17 +141,7 @@ fn history_root_differs_from_the_projection_root() {
         let prev = projection;
 
         history = history_step(&history, &digest).unwrap();
-        // SAFETY: two digests of 32 bytes and room for a third.
-        let ret = unsafe {
-            sha256_2(
-                prev.as_ptr().cast(),
-                32,
-                digest.as_ptr().cast(),
-                32,
-                projection.as_mut_ptr(),
-            )
-        };
-        assert_eq!(ret, 0);
+        projection = sha256_parts(&prev, &digest).unwrap();
         assert_eq!(crate::util::hex::encode(&projection), PROJECTION_ROOTS[i]);
         assert_eq!(crate::util::hex::encode(&history), HISTORY_ROOTS[i + 1]);
         assert_ne!(history, projection);
