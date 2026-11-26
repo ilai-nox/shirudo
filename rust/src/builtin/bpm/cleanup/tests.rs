@@ -52,6 +52,7 @@ fn first(fd: BorrowedFd<'_>) -> u8 {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
 fn uninstall_detaches_before_removing_all_versions() {
     let p = Package::new();
     p.put("sample/1/upatches/a.unload.upatch", b'a');
@@ -88,6 +89,7 @@ fn uninstall_detaches_before_removing_all_versions() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
 fn unload_uses_the_file_opened_before_a_path_replacement() {
     let p = Package::new();
     let rel = "sample/1/upatches/a.unload.upatch";
@@ -109,6 +111,7 @@ fn unload_uses_the_file_opened_before_a_path_replacement() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
 fn unpaired_load_must_be_inactive() {
     let p = Package::new();
     p.put("sample/1/upatches/load.upatch", b'l');
@@ -138,6 +141,7 @@ fn unpaired_load_must_be_inactive() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
 fn retry_finishes_partly_removed_package() {
     let p = Package::new();
     p.put("sample/1/upatches/notes", b'n');
@@ -157,6 +161,7 @@ fn retry_finishes_partly_removed_package() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
 fn cleanup_requires_one_child_directory() {
     let p = Package::new();
     for name in [c".", c"../1", c"sample/1/upatches"] {
