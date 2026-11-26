@@ -1106,6 +1106,17 @@ pub(crate) fn runtime_mount() -> c_int {
     with_state(|s| mount_runtime(s, false))
 }
 
+/// Keep the runtime signer in the boot set while the guard loaders start.
+fn add_runtime_signer(set: &mut TrustedSet, primary: TrustedCert) -> Result<(), c_int> {
+    if members(set)
+        .iter()
+        .any(|c| c.fingerprint() == primary.fingerprint())
+    {
+        return Ok(());
+    }
+    set.push(primary)
+}
+
 /// The initrd's boot trust set: the runtime mounted, its config
 /// certificate sealed into the dm-verity keyring, the boot config
 /// prepared and its key set validated, with the runtime's signer added
@@ -1144,9 +1155,7 @@ pub(crate) fn boot_keys(set: &mut TrustedSet) -> c_int {
         Ok(c) => c,
         Err(err) => return boot_keys_error("digest primary certificate", err),
     };
-    if !members(set).iter().any(|c| c.sha256() == primary.sha256())
-        && let Err(err) = set.push(primary)
-    {
+    if let Err(err) = add_runtime_signer(set, primary) {
         return boot_keys_error("add runtime certificate to trusted set", err);
     }
     with_state(|s| s.boot_target_valid = true);
@@ -1546,8 +1555,59 @@ pub(crate) fn stage_cancel() -> c_int {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_nvpcr_authorize;
+    use super::{add_runtime_signer, parse_nvpcr_authorize};
     use crate::errno::EBADMSG;
+    use crate::testutil::TempDir;
+    use crate::util::keys::{TrustedCert, TrustedSet};
+    use openssl::pkey::{PKey, Private};
+
+    fn cert_for_key(key: &PKey<Private>, name: &str) -> Vec<u8> {
+        use openssl::asn1::Asn1Time;
+        use openssl::hash::MessageDigest;
+        use openssl::x509::{X509, X509NameBuilder};
+
+        let mut subject = X509NameBuilder::new().unwrap();
+        subject.append_entry_by_text("CN", name).unwrap();
+        let subject = subject.build();
+        let mut cert = X509::builder().unwrap();
+        cert.set_version(2).unwrap();
+        cert.set_subject_name(&subject).unwrap();
+        cert.set_issuer_name(&subject).unwrap();
+        cert.set_pubkey(key).unwrap();
+        cert.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+            .unwrap();
+        cert.set_not_after(&Asn1Time::days_from_now(1).unwrap())
+            .unwrap();
+        cert.sign(key, MessageDigest::sha256()).unwrap();
+        cert.build().to_der().unwrap()
+    }
+
+    #[test]
+    fn boot_set_takes_one_certificate_per_runtime_key() {
+        use openssl::ec::{EcGroup, EcKey};
+        use openssl::nid::Nid;
+
+        let dir = TempDir::new();
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+        let key = PKey::from_ec_key(EcKey::generate(&group).unwrap()).unwrap();
+        std::fs::write(dir.join("first.der"), cert_for_key(&key, "first")).unwrap();
+        std::fs::write(dir.join("second.der"), cert_for_key(&key, "second")).unwrap();
+        let first = TrustedCert::primary_at(&dir.cpath("first.der")).unwrap();
+        let second = TrustedCert::primary_at(&dir.cpath("second.der")).unwrap();
+        assert_ne!(first.sha256(), second.sha256());
+        assert_eq!(first.fingerprint(), second.fingerprint());
+
+        let mut set = TrustedSet::default();
+        set.push(first).unwrap();
+        add_runtime_signer(&mut set, second).unwrap();
+        assert_eq!(set.len(), 1);
+
+        let other = PKey::from_ec_key(EcKey::generate(&group).unwrap()).unwrap();
+        std::fs::write(dir.join("third.der"), cert_for_key(&other, "third")).unwrap();
+        let third = TrustedCert::primary_at(&dir.cpath("third.der")).unwrap();
+        add_runtime_signer(&mut set, third).unwrap();
+        assert_eq!(set.len(), 2);
+    }
 
     #[test]
     fn nvpcr_policy_branch_is_exact_hex_with_optional_newline() {
