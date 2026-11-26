@@ -200,8 +200,20 @@ fn open(w: &mut Work, rep: &mut OpReport) -> Result<bool, ()> {
 fn collect(rep: &mut OpReport) -> Result<Vec<Work>, ()> {
     let mut work = Vec::new();
     let ret = each_pinned(&mut |name| {
-        if Pins::read(name).map_or(true, |p| p.nr_xdp_progs == 0) {
-            return 0;
+        match Pins::read(name) {
+            Ok(pins) if pins.nr_xdp_progs == 0 => return 0,
+            Ok(_) => {}
+            Err(err) if err == -ENOENT => return 0,
+            Err(err) => {
+                fail(
+                    rep,
+                    c"pre_flight",
+                    c"unknown",
+                    -err,
+                    b"cannot read the pins of an upatch",
+                );
+                return 1;
+            }
         }
         if name.len() > NAME_MAX {
             fail(

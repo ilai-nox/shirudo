@@ -408,7 +408,11 @@ pub(crate) fn resolve_location(vbtf: Option<&Btf>, name: &[u8], out: &mut [u8]) 
     if let Some(first) = out.first_mut() {
         *first = 0;
     }
-    if Pins::read(name).is_ok_and(|p| p.nr_xdp_progs != 0) {
+    let pins = match Pins::read(name) {
+        Ok(pins) => pins,
+        Err(err) => return err,
+    };
+    if pins.nr_xdp_progs != 0 {
         return xdp_location(name, out);
     }
     let link = open_first_link(name);
@@ -562,7 +566,8 @@ pub(crate) fn loaded_at(name: &[u8], out: &mut [u8]) {
     }
     let dir = match Pins::read(name) {
         Ok(p) if p.nr_xdp_progs != 0 => xdp_prog_pin(name, p.first_xdp_prog),
-        _ => pin_path(name, &[]),
+        Ok(_) => pin_path(name, &[]),
+        Err(_) => return,
     };
     let Ok(dir) = dir else {
         return;

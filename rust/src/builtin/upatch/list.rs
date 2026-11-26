@@ -11,7 +11,7 @@ use std::ffi::CString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 
-use super::{JSON_MAX, hex, out, pad, print_json};
+use super::{JSON_MAX, hex, log_err, out, pad, print_json, strerr};
 use crate::util::format::name_column_width;
 use crate::util::help::{Help, HelpSection};
 use crate::util::java_agent;
@@ -41,9 +41,9 @@ fn names(dir: &str, keep: impl Fn(&[u8]) -> bool) -> Vec<Vec<u8>> {
 /// Whether upatch `name` is loaded, by its pins alone, so that listing
 /// adds no denied BPF_OBJ_GET to the tamper counters: a link, an XDP
 /// program pin, or its test program.
-fn loaded(name: &[u8]) -> bool {
-    if loaded_pins(name) {
-        return true;
+fn loaded(name: &[u8]) -> Result<bool, c_int> {
+    if loaded_pins(name)? {
+        return Ok(true);
     }
     let pin = [
         BPFFS_UPATCHES_DIR.as_bytes(),
@@ -52,7 +52,7 @@ fn loaded(name: &[u8]) -> bool {
         b"/test",
     ]
     .concat();
-    fs::metadata(std::ffi::OsStr::from_bytes(&pin)).is_ok()
+    Ok(fs::metadata(std::ffi::OsStr::from_bytes(&pin)).is_ok())
 }
 
 /// An archived upatch, as its file describes it.
@@ -61,7 +61,7 @@ struct Archived {
     ty: &'static [u8],
     payload_type: &'static [u8],
     payload: Vec<u8>,
-    loaded: bool,
+    loaded: Result<bool, c_int>,
 }
 
 fn archived(file: &[u8]) -> Option<Archived> {
@@ -73,7 +73,7 @@ fn archived(file: &[u8]) -> Option<Archived> {
         payload_type: u.payload_type(),
         payload: hex(&u.hdr.payload_sha256),
         loaded: if u.hdr.ty == TYPE_JAVA {
-            java_agent::loaded(&name)
+            Ok(java_agent::loaded(&name))
         } else {
             loaded(&name)
         },
@@ -149,18 +149,38 @@ pub(super) fn run(args: &[&CStr]) -> c_int {
             fs::metadata(std::ffi::OsStr::from_bytes(&archive)).is_err()
         })
         .collect();
+    let archived_rows = files.iter().map(|f| archived(f)).collect::<Vec<_>>();
+    let mut result = 0;
+    for a in archived_rows.iter().flatten() {
+        if let Err(err) = a.loaded {
+            log_err(
+                &[
+                    &b"upatch list: cannot read the pins of "[..],
+                    &a.name,
+                    b": ",
+                    strerr(-err),
+                ]
+                .concat(),
+            );
+            result = 1;
+        }
+    }
 
     if json {
         let mut e = JsonEmit::growing(JSON_MAX);
         e.obj_open();
         e.kv_int(b"schema", 1);
         e.arr_open(b"upatches");
-        for a in files.iter().filter_map(|f| archived(f)) {
+        for a in archived_rows.iter().flatten() {
             e.obj_open();
             e.kv_string(b"name", &a.name);
             e.kv_string(b"type", a.ty);
             e.kv_string(b"payload_type", a.payload_type);
-            e.kv_bool(b"loaded", a.loaded);
+            if let Ok(loaded) = a.loaded {
+                e.kv_bool(b"loaded", loaded);
+            } else {
+                e.kv_null(b"loaded");
+            }
             e.kv_bool(b"archived", true);
             e.kv_string(b"payload_sha256", &a.payload);
             e.obj_close();
@@ -176,10 +196,9 @@ pub(super) fn run(args: &[&CStr]) -> c_int {
         }
         e.arr_close();
         e.obj_close();
-        return print_json(e, b"upatch list");
+        return print_json(e, b"upatch list").max(result);
     }
 
-    let archived_rows = files.iter().map(|f| archived(f)).collect::<Vec<_>>();
     let width = name_column_width(
         files
             .iter()
@@ -204,7 +223,11 @@ pub(super) fn run(args: &[&CStr]) -> c_int {
                 t.extend(row(
                     [
                         &a.name,
-                        if a.loaded { b"yes" } else { b"no" },
+                        match a.loaded {
+                            Ok(true) => b"yes",
+                            Ok(false) => b"no",
+                            Err(_) => b"?",
+                        },
                         a.ty,
                         a.payload_type,
                     ],
@@ -223,5 +246,5 @@ pub(super) fn run(args: &[&CStr]) -> c_int {
         ));
     }
     out(&t);
-    0
+    result
 }

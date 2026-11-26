@@ -305,9 +305,11 @@ fn recover_pending(
     {
         outcome_unmatched(passed, &previous, history_root)?;
     }
-    let absent = cstr(&op.op) == b"add"
-        && !upatch_pins::loaded_pins(cstr(&op.id))
-        && !java_agent::loaded(cstr(&op.id));
+    let absent = if cstr(&op.op) == b"add" {
+        !upatch_pins::loaded_pins(cstr(&op.id))? && !java_agent::loaded(cstr(&op.id))
+    } else {
+        false
+    };
     let outcome = if absent {
         OUTCOME_MODULE_ABSENT
     } else {

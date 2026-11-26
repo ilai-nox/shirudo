@@ -6,7 +6,8 @@
 //! that have one.
 
 use core::ffi::{CStr, c_int};
-use std::ffi::CString;
+use std::ffi::{CString, OsStr, OsString};
+use std::io;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 
@@ -57,6 +58,28 @@ fn pin_index(entry: &[u8], prefix: &[u8]) -> Option<u32> {
     core::str::from_utf8(digits).ok()?.parse().ok()
 }
 
+fn io_errno(error: io::Error) -> c_int {
+    -error.raw_os_error().unwrap_or(EIO)
+}
+
+/// Visit names from one directory, including a read error after earlier names.
+fn each_name(
+    entries: impl IntoIterator<Item = io::Result<OsString>>,
+    mut visit: impl FnMut(&OsStr) -> c_int,
+) -> c_int {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => return io_errno(error),
+        };
+        let ret = visit(entry.as_os_str());
+        if ret != 0 {
+            return ret;
+        }
+    }
+    0
+}
+
 impl Pins {
     /// One entry of the directory taken into account.
     pub(crate) fn note(&mut self, entry: &[u8]) {
@@ -100,21 +123,33 @@ impl Pins {
     /// The pins of the directory of upatch `name`: -ENOENT without one.
     pub(crate) fn read(name: &[u8]) -> Result<Self, c_int> {
         let dir = [BPFFS_UPATCHES_DIR.as_bytes(), b"/", &pin_name(name)].concat();
-        let errno = |e: std::io::Error| -e.raw_os_error().unwrap_or(EIO);
-        let mut pins = Pins::default();
-
-        for e in std::fs::read_dir(std::ffi::OsStr::from_bytes(&dir)).map_err(errno)? {
-            pins.note(e.map_err(errno)?.file_name().as_bytes());
-        }
-        Ok(pins)
+        let entries = std::fs::read_dir(OsStr::from_bytes(&dir)).map_err(io_errno)?;
+        read_entries(entries.map(|entry| entry.map(|entry| entry.file_name())))
     }
+}
+
+fn read_entries(entries: impl IntoIterator<Item = io::Result<OsString>>) -> Result<Pins, c_int> {
+    let mut pins = Pins::default();
+    let ret = each_name(entries, |name| {
+        pins.note(name.as_bytes());
+        0
+    });
+    if ret == 0 { Ok(pins) } else { Err(ret) }
 }
 
 /// Whether upatch `name` is loaded, by its pins alone, so a caller
 /// without the task mark adds no denied BPF_OBJ_GET to the tamper
 /// counters.
-pub(crate) fn loaded_pins(name: &[u8]) -> bool {
-    Pins::read(name).is_ok_and(|p| p.loaded())
+pub(crate) fn loaded_pins(name: &[u8]) -> Result<bool, c_int> {
+    loaded_from_pins(Pins::read(name))
+}
+
+fn loaded_from_pins(read: Result<Pins, c_int>) -> Result<bool, c_int> {
+    match read {
+        Ok(pins) => Ok(pins.loaded()),
+        Err(err) if err == -ENOENT => Ok(false),
+        Err(err) => Err(err),
+    }
 }
 
 /// The pin that keeps XDP program `index` of upatch `name` loaded.
@@ -173,57 +208,60 @@ pub(crate) fn each_link(name: &[u8], cb: &mut dyn FnMut(u32, &CStr) -> c_int) ->
     let Ok(dir) = pin_path(name, &[]) else {
         return -ENAMETOOLONG;
     };
-    let errno_of = |e: std::io::Error| -e.raw_os_error().unwrap_or(EIO);
-    let entries = match std::fs::read_dir(std::ffi::OsStr::from_bytes(dir.as_bytes())) {
-        Ok(e) => e,
-        Err(e) => return errno_of(e),
+    let entries = match std::fs::read_dir(OsStr::from_bytes(dir.as_bytes())) {
+        Ok(entries) => entries,
+        Err(error) => return io_errno(error),
     };
-    for e in entries {
-        let e = match e {
-            Ok(e) => e,
-            Err(e) => return errno_of(e),
-        };
-        let file = e.file_name();
+    each_link_from(
+        &dir,
+        entries.map(|entry| entry.map(|entry| entry.file_name())),
+        cb,
+    )
+}
+
+fn each_link_from(
+    dir: &CStr,
+    entries: impl IntoIterator<Item = io::Result<OsString>>,
+    cb: &mut dyn FnMut(u32, &CStr) -> c_int,
+) -> c_int {
+    each_name(entries, |file| {
         let Some(index) = pin_index(file.as_bytes(), LINK_PIN_PREFIX) else {
-            continue;
+            return 0;
         };
-        let pin = [dir.as_bytes(), b"/", file.as_bytes()].concat();
+        let pin = [dir.to_bytes(), b"/", file.as_bytes()].concat();
         let Ok(pin) = CString::new(pin) else {
             return -ENAMETOOLONG;
         };
-        let ret = cb(index, &pin);
-        if ret != 0 {
-            return ret;
-        }
-    }
-    0
+        cb(index, &pin)
+    })
 }
 
 /// Calls `cb` with the name of each upatch that has a pin directory and
 /// stops at the first nonzero return, which it returns. No directory at
 /// all is 0, any other failure to read it -errno.
 pub(crate) fn each_pinned(cb: &mut dyn FnMut(&[u8]) -> c_int) -> c_int {
-    let errno_of = |e: std::io::Error| -e.raw_os_error().unwrap_or(EIO);
     let entries = match std::fs::read_dir(BPFFS_UPATCHES_DIR) {
-        Ok(e) => e,
-        Err(e) if e.raw_os_error() == Some(ENOENT) => return 0,
-        Err(e) => return errno_of(e),
+        Ok(entries) => entries,
+        Err(error) if error.raw_os_error() == Some(ENOENT) => return 0,
+        Err(error) => return io_errno(error),
     };
-    for e in entries {
-        let e = match e {
-            Ok(e) => e,
-            Err(e) => return errno_of(e),
-        };
+    each_pinned_from(
+        entries.map(|entry| entry.map(|entry| entry.file_name())),
+        cb,
+    )
+}
+
+fn each_pinned_from(
+    entries: impl IntoIterator<Item = io::Result<OsString>>,
+    cb: &mut dyn FnMut(&[u8]) -> c_int,
+) -> c_int {
+    each_name(entries, |entry| {
         let mut name = [0u8; NAME_MAX + 1];
-        if crate::util::measured::name_from_bpffs(&mut name, e.file_name().as_bytes()) != 0 {
-            continue;
+        if crate::util::measured::name_from_bpffs(&mut name, entry.as_bytes()) != 0 {
+            return 0;
         }
-        let ret = cb(crate::text::cstr(&name));
-        if ret != 0 {
-            return ret;
-        }
-    }
-    0
+        cb(crate::text::cstr(&name))
+    })
 }
 
 #[cfg(test)]

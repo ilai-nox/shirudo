@@ -80,7 +80,7 @@ fn complete_means_every_link() {
 #[test]
 fn absent_upatch_has_no_pins() {
     assert_eq!(Pins::read(ABSENT).err(), Some(-ENOENT));
-    assert!(!loaded_pins(ABSENT));
+    assert_eq!(loaded_pins(ABSENT), Ok(false));
 }
 
 #[test]

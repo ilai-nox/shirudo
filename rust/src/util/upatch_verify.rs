@@ -480,8 +480,16 @@ impl Walk<'_, '_> {
         let Some(payload) = pin_measured(self.s, name) else {
             return 0;
         };
-        if Pins::read(name).map_or(true, |p| p.nr_xdp_progs == 0) {
-            return self.links_unverified(name);
+        match Pins::read(name) {
+            Ok(pins) if pins.nr_xdp_progs == 0 => return self.links_unverified(name),
+            Ok(_) => {}
+            Err(err) => {
+                if err != -ENOENT {
+                    note_err(&mut self.c.check_err, err);
+                    note_err(&mut self.c.coverage_err, err);
+                }
+                return self.links_unverified(name);
+            }
         }
         let u = match archive_verify(name, &payload) {
             Ok(u) => u,

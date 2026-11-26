@@ -143,7 +143,15 @@ fn restore_one(
     }
     // By the pins' names alone: an XDP upatch with no device yet has its
     // program pin and no link.
-    if loaded_pins(upatch) {
+    let loaded = loaded_pins(upatch).inspect_err(|&err| {
+        error(&cat!(
+            "boot-restore: cannot read the pins of ",
+            upatch,
+            ": ",
+            strerr(-err)
+        ));
+    })?;
+    if loaded {
         let mut pinned = [0u8; 65];
         upatch_resolve::payload_sha256(upatch, &mut pinned);
         if cstr(&pinned) != cstr(&e.payload_hex) {
