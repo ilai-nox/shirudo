@@ -11,6 +11,17 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 
 #[test]
+#[cfg_attr(miri, ignore = "needs procfs and openat2")]
+fn open_beneath_same_mount_stops_at_proc() {
+    let root = File::open("/").unwrap();
+    assert!(open_beneath(root.as_raw_fd(), c"proc", O_RDONLY | O_DIRECTORY).is_ok());
+    assert!(matches!(
+        open_beneath_same_mount(root.as_raw_fd(), c"proc", O_RDONLY | O_DIRECTORY),
+        Err(err) if err == -crate::errno::EXDEV
+    ));
+}
+
+#[test]
 fn errno_of_uses_the_os_error_or_eio() {
     assert_eq!(
         super::errno_of(&std::io::Error::from_raw_os_error(EINVAL)),

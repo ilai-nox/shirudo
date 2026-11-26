@@ -151,6 +151,30 @@ mod tests {
     }
 
     #[test]
+    fn state_root_requires_recorded_directory() {
+        use crate::sys::identity::Identity;
+        use crate::util::io::stat_fd;
+        use std::os::fd::AsFd;
+
+        let root = std::fs::File::open(".").unwrap();
+        let other = std::fs::File::open("..").unwrap();
+        let st = stat_fd(root.as_fd()).unwrap();
+        let mut id = Identity::zeroed();
+        id.state_dev = libc::makedev(st.stx_dev_major, st.stx_dev_minor);
+        id.state_ino = st.stx_ino;
+        assert_eq!(super::check_state_root(&id, root.as_fd()), Ok(()));
+        assert_eq!(
+            super::check_state_root(&id, other.as_fd()),
+            Err(-crate::errno::EXDEV)
+        );
+        id.state_dev += 1;
+        assert_eq!(
+            super::check_state_root(&id, root.as_fd()),
+            Err(-crate::errno::EXDEV)
+        );
+    }
+
+    #[test]
     fn kernel_name_is_the_start_of_a_long_one() {
         let name = kernel_name(b"shirudo_bpffs_s");
 
