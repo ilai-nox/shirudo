@@ -210,3 +210,12 @@ fn a_failed_directory_read_is_an_error() {
     );
     assert_eq!(pinned, 2);
 }
+
+#[test]
+fn a_failed_read_leaves_no_partial_pins() {
+    let mut found = entries(&[b"link", b"link_0", b"link_1", b"alpha"]);
+    found.push(Err(io::Error::from_raw_os_error(EIO)));
+
+    // Result has no Pins value to inspect or act on after this error.
+    assert_eq!(read_entries(found).err(), Some(-EIO));
+}
