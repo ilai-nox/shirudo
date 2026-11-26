@@ -28,9 +28,7 @@ use crate::util::bpm_tree_state::{
     event_replay, outcome_append, outcome_roots, outcomes_resume, pending_read, pending_write,
     selector_matches, state_read, state_write,
 };
-use crate::util::chain::{
-    self, chain_bound, chain_extend, history_step, memneq_explicit, sha256_parts,
-};
+use crate::util::chain::{self, history_step, memneq_explicit, sha256_parts};
 use crate::util::eventlog;
 use crate::util::hex::sha256_digest_encode;
 use crate::util::json::JsonEmit;
@@ -164,8 +162,7 @@ fn measure_locked(op: &TreeOperation, digest: &[u8; 32]) -> Result {
 
     status(chain::tree_event(op.seq, digest, &mut event))?;
     let (len, chain_at) = prepare_tree_record(op, &event, &mut line)?;
-    // SAFETY: event and room for the resulting register value.
-    status(unsafe { chain_extend(event.as_ptr(), chain.as_mut_ptr()) })?;
+    status(chain::extend(&event, Some(&mut chain)))?;
     hex_into(&chain, &mut chain_hex);
     line[chain_at..chain_at + 64].copy_from_slice(&chain_hex[..64]);
     status(eventlog::append(&line[..len]))
@@ -848,7 +845,7 @@ fn sync(dry_run: bool, report: Option<&[u8]>) -> Result {
     }
     // "-" is standard output, where the report goes without --report.
     let to = report.filter(|r| !r.is_empty() && *r != b"-");
-    write_report(to, &sync, chain_bound())
+    write_report(to, &sync, chain::bound())
 }
 
 /// `shirudo bpm tree sync`, which takes the bpm lock only once a tree is

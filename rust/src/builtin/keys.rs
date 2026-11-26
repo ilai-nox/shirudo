@@ -25,7 +25,7 @@ use crate::sys::identity::Identity;
 use crate::sys::libc::{O_CLOEXEC, O_RDONLY, PATH_MAX, errno, fwrite, open, stdout, strerror};
 use crate::sys::openssl::{EVP_PKEY_get_base_id, X509_NAME_oneline};
 use crate::text::{cstr, name_has_suffix};
-use crate::util::chain::{self, chain_extend};
+use crate::util::chain;
 use crate::util::crypto_openssl::{
     Cert, cert_free, cert_key_algorithm, cert_read_der, cms_signed_by, complain_stack,
     key_type_name, openssl_complain, sha256, utc, x509_from_der_bio,
@@ -958,8 +958,7 @@ fn measure_revoke_locked(sha256: &[u8; 32], fp_hex: &[u8]) -> c_int {
             return err;
         }
     };
-    // SAFETY: the event and room for the chain.
-    let ret = unsafe { chain_extend(event.as_ptr(), chain.as_mut_ptr()) };
+    let ret = chain::extend(&event, Some(&mut chain));
     if ret != 0 {
         let (what, category): (&[u8], &[u8]) = match ret {
             r if r == -ENODEV => (b"unavailable", b"tpm_error"),

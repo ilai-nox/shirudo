@@ -317,7 +317,7 @@ mod verified {
     use super::{MEASURED_MAX, member_type, set_add};
     use crate::errno::{EBADMSG, EINVAL, ENOENT, ENOMEM};
     use crate::text::cstr;
-    use crate::util::chain::{self, ChainLive, MeasuredUpatch, chain_fold, memneq_explicit};
+    use crate::util::chain::{self, ChainLive, MeasuredUpatch, memneq_explicit};
     use crate::util::eventlog::{self, UpatchFn, upatches_record};
     use crate::util::hex;
     use crate::util::json::{JsonField, parse_schema};
@@ -544,8 +544,7 @@ mod verified {
             if memneq_explicit(&event, &digest) {
                 return -EBADMSG;
             }
-            // SAFETY: the register and the event, digests both.
-            let ret = unsafe { chain_fold(register.as_mut_ptr(), event.as_ptr()) };
+            let ret = chain::fold(&mut register, &event);
             if ret != 0 {
                 return ret;
             }

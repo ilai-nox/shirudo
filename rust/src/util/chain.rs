@@ -750,7 +750,7 @@ pub(crate) fn extend(event: &[u8; DIGEST_LEN], out_chain: Option<&mut [u8; DIGES
         .unwrap_or(0)
 }
 
-/// chain_extend() on the connection `tpm`, with the record `rec` and the
+/// Extend on the connection `tpm`, with the record `rec` and the
 /// branches and policy `e` of its binding.
 fn extend_on(
     tpm: &mut Tpm,
@@ -839,7 +839,7 @@ pub(crate) fn live() -> Result<ChainLive, c_int> {
     })
 }
 
-/// Whether a TPM answers with the register written: chain_bound().
+/// Whether a TPM answers with the register written.
 pub(crate) fn bound() -> bool {
     let Ok(tpm) = Tpm::open_quiet() else {
         return false;
@@ -916,51 +916,5 @@ fn status_on(tpm: &Tpm, st: &mut ChainStatus) -> c_int {
     ret
 }
 
-pub(crate) use capi::{chain_bound, chain_extend, chain_fold};
-
 #[cfg(test)]
 mod tests;
-
-mod capi {
-    use core::ffi::c_int;
-
-    use super::DIGEST_LEN;
-
-    /// # Safety
-    ///
-    /// `p` points to a digest.
-    unsafe fn digest<'a>(p: *const u8) -> &'a [u8; DIGEST_LEN] {
-        // SAFETY: the caller's digest.
-        unsafe { &*p.cast() }
-    }
-
-    /// # Safety
-    ///
-    /// `p` is room for a digest nothing else touches meanwhile.
-    unsafe fn room<'a>(p: *mut u8) -> &'a mut [u8; DIGEST_LEN] {
-        // SAFETY: the caller's room.
-        unsafe { &mut *p.cast() }
-    }
-
-    /// # Safety
-    ///
-    /// `chain` and `event` are digests, which may be the same.
-    pub unsafe extern "C" fn chain_fold(chain: *mut u8, event: *const u8) -> c_int {
-        // SAFETY: the caller's event, copied before the register is lent.
-        let event = unsafe { *digest(event) };
-        // SAFETY: the caller's register.
-        super::fold(unsafe { room(chain) }, &event)
-    }
-
-    /// # Safety
-    ///
-    /// `event` is a digest and `out_chain` NULL or room for one.
-    pub unsafe extern "C" fn chain_extend(event: *const u8, out_chain: *mut u8) -> c_int {
-        // SAFETY: the caller passes a digest and NULL or the room.
-        unsafe { super::extend(digest(event), out_chain.cast::<[u8; DIGEST_LEN]>().as_mut()) }
-    }
-
-    pub extern "C" fn chain_bound() -> bool {
-        super::bound()
-    }
-}
