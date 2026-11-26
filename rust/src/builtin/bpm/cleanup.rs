@@ -213,3 +213,6 @@ fn uninstall_at(
     }
     remove_dir(store, &package_name, package, 0)
 }
+
+#[cfg(test)]
+mod tests;

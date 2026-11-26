@@ -22,6 +22,56 @@ fn open_beneath_same_mount_stops_at_proc() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "needs mount namespaces and openat2")]
+fn open_beneath_same_mount_refuses_a_bind() {
+    // This case runs only when the test process can make a private mount
+    // namespace; an unprivileged host run leaves the other cases active.
+    // SAFETY: a query that takes no pointer.
+    if unsafe { libc::geteuid() } != 0 {
+        return;
+    }
+    // SAFETY: unshare changes only this test thread's mount namespace.
+    if unsafe { libc::unshare(libc::CLONE_NEWNS) } != 0 {
+        return;
+    }
+    // SAFETY: the root mount and constant flags; no data argument.
+    let ret = unsafe {
+        libc::mount(
+            core::ptr::null(),
+            c"/".as_ptr(),
+            core::ptr::null(),
+            libc::MS_REC | libc::MS_PRIVATE,
+            core::ptr::null(),
+        )
+    };
+    assert_eq!(ret, 0);
+    let dir = TempDir::new();
+    std::fs::create_dir(dir.join("source")).unwrap();
+    std::fs::create_dir(dir.join("alias")).unwrap();
+    let source = dir.cpath("source");
+    let alias = dir.cpath("alias");
+    // SAFETY: two existing directory paths and constant bind flags.
+    let ret = unsafe {
+        libc::mount(
+            source.as_ptr(),
+            alias.as_ptr(),
+            core::ptr::null(),
+            libc::MS_BIND,
+            core::ptr::null(),
+        )
+    };
+    assert_eq!(ret, 0);
+    let root = File::open(dir.join("")).unwrap();
+    assert!(open_beneath(root.as_raw_fd(), c"alias", O_RDONLY | O_DIRECTORY).is_ok());
+    assert!(matches!(
+        open_beneath_same_mount(root.as_raw_fd(), c"alias", O_RDONLY | O_DIRECTORY),
+        Err(err) if err == -crate::errno::EXDEV
+    ));
+    // SAFETY: the bind mount made above, in this test thread's namespace.
+    assert_eq!(unsafe { libc::umount2(alias.as_ptr(), 0) }, 0);
+}
+
+#[test]
 fn errno_of_uses_the_os_error_or_eio() {
     assert_eq!(
         super::errno_of(&std::io::Error::from_raw_os_error(EINVAL)),
