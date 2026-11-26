@@ -317,10 +317,7 @@ mod verified {
     use super::{MEASURED_MAX, member_type, set_add};
     use crate::errno::{EBADMSG, EINVAL, ENOENT, ENOMEM};
     use crate::text::cstr;
-    use crate::util::chain::{
-        self, ChainLive, MeasuredUpatch, chain_fold, chain_init_event, chain_key_event,
-        chain_tree_event, chain_upatch_event, memneq_explicit,
-    };
+    use crate::util::chain::{self, ChainLive, MeasuredUpatch, chain_fold, memneq_explicit};
     use crate::util::eventlog::{self, UpatchFn, upatches_record};
     use crate::util::hex;
     use crate::util::json::{JsonField, parse_schema};
@@ -444,59 +441,39 @@ mod verified {
     fn event_of(r: &mut Record) -> Result<[u8; 32], c_int> {
         let mut event = [0u8; 32];
         let ty = cstr(&r.ty);
-        // SAFETY: digests and C strings of the record, and room for the
-        // event.
-        let ret = unsafe {
-            match ty {
-                b"init" => {
-                    if !r.init {
-                        return Err(-EINVAL);
-                    }
-                    let (cert, root) = (decode32(&r.cert_hex)?, decode32(&r.tree_root_hex)?);
-                    let mut set_digest = [0u8; 32];
-                    chain_init_event(
-                        cert.as_ptr(),
-                        r.set.as_mut_ptr(),
-                        r.set.len(),
-                        root.as_ptr(),
-                        set_digest.as_mut_ptr(),
-                        event.as_mut_ptr(),
-                    )
+        let ret = match ty {
+            b"init" => {
+                if !r.init {
+                    return Err(-EINVAL);
                 }
-                b"upatch_load" | b"upatch_unload" | b"java_load" | b"java_unload" => {
-                    if !r.upatch || !member_valid(cstr(&r.name), cstr(&r.payload_hex)) {
-                        return Err(-EINVAL);
-                    }
-                    let payload = decode32(&r.payload_hex)?;
-                    let (payload_type, load) = eventlog::upatch_record_parse(ty).ok_or(-EINVAL)?;
-                    let tag = chain::upatch_tag(payload_type, load).ok_or(-EINVAL)?;
-                    chain_upatch_event(
-                        tag.as_ptr(),
-                        r.name.as_ptr().cast(),
-                        payload.as_ptr(),
-                        event.as_mut_ptr(),
-                    )
-                }
-                b"key_revoke" => {
-                    if !r.key {
-                        return Err(-EINVAL);
-                    }
-                    let cert = decode32(&r.key_hex)?;
-                    chain_key_event(
-                        c"shirudo-key-revoke".as_ptr(),
-                        cert.as_ptr(),
-                        event.as_mut_ptr(),
-                    )
-                }
-                b"tree_op" => {
-                    let operation = crate::util::bpm_tree::digest_bytes(&r.operation);
-                    let (true, Some(operation)) = (r.tree, operation) else {
-                        return Err(-EINVAL);
-                    };
-                    chain_tree_event(r.seq, operation.as_ptr(), event.as_mut_ptr())
-                }
-                _ => return Err(-EINVAL),
+                let (cert, root) = (decode32(&r.cert_hex)?, decode32(&r.tree_root_hex)?);
+                let mut set_digest = [0u8; 32];
+                chain::init_event(&cert, &mut r.set, &root, &mut set_digest, &mut event)
             }
+            b"upatch_load" | b"upatch_unload" | b"java_load" | b"java_unload" => {
+                if !r.upatch || !member_valid(cstr(&r.name), cstr(&r.payload_hex)) {
+                    return Err(-EINVAL);
+                }
+                let payload = decode32(&r.payload_hex)?;
+                let (payload_type, load) = eventlog::upatch_record_parse(ty).ok_or(-EINVAL)?;
+                let tag = chain::upatch_tag(payload_type, load).ok_or(-EINVAL)?;
+                chain::upatch_event(tag, &r.name, &payload, &mut event)
+            }
+            b"key_revoke" => {
+                if !r.key {
+                    return Err(-EINVAL);
+                }
+                let cert = decode32(&r.key_hex)?;
+                chain::key_event(c"shirudo-key-revoke", &cert, &mut event)
+            }
+            b"tree_op" => {
+                let operation = crate::util::bpm_tree::digest_bytes(&r.operation);
+                let (true, Some(operation)) = (r.tree, operation) else {
+                    return Err(-EINVAL);
+                };
+                chain::tree_event(r.seq, &operation, &mut event)
+            }
+            _ => return Err(-EINVAL),
         };
         if ret != 0 { Err(ret) } else { Ok(event) }
     }

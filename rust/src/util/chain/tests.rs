@@ -24,14 +24,7 @@ fn chain_events_hash_their_documented_input() {
     let mut event = [0u8; 32];
     let input = [&b"shirudo-key-revoke\0"[..], &cert].concat();
 
-    // SAFETY: a C string, a digest and room for one.
-    let ret = unsafe {
-        capi::chain_key_event(
-            c"shirudo-key-revoke".as_ptr(),
-            cert.as_ptr(),
-            event.as_mut_ptr(),
-        )
-    };
+    let ret = key_event(c"shirudo-key-revoke", &cert, &mut event);
     assert_eq!(ret, 0);
     assert_eq!(event, sha256(&input));
 }

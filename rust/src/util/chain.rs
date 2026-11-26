@@ -916,19 +916,15 @@ fn status_on(tpm: &Tpm, st: &mut ChainStatus) -> c_int {
     ret
 }
 
-pub(crate) use capi::{
-    chain_bound, chain_extend, chain_fold, chain_key_event, chain_tree_event, chain_upatch_event,
-};
-
-pub(crate) use capi::chain_init_event;
+pub(crate) use capi::{chain_bound, chain_extend, chain_fold};
 
 #[cfg(test)]
 mod tests;
 
 mod capi {
-    use core::ffi::{CStr, c_char, c_int};
+    use core::ffi::c_int;
 
-    use super::{DIGEST_LEN, MeasuredUpatch};
+    use super::DIGEST_LEN;
 
     /// # Safety
     ///
@@ -944,81 +940,6 @@ mod capi {
     unsafe fn room<'a>(p: *mut u8) -> &'a mut [u8; DIGEST_LEN] {
         // SAFETY: the caller's room.
         unsafe { &mut *p.cast() }
-    }
-
-    /// # Safety
-    ///
-    /// `set` holds `n` members, `cert_sha` and `tree_root` digests, and
-    /// `set_digest` and `event` have room for one.
-    pub unsafe extern "C" fn chain_init_event(
-        cert_sha: *const u8,
-        set: *mut MeasuredUpatch,
-        n: usize,
-        tree_root: *const u8,
-        set_digest: *mut u8,
-        event: *mut u8,
-    ) -> c_int {
-        let set: &mut [MeasuredUpatch] = if n == 0 {
-            &mut []
-        } else {
-            // SAFETY: the caller's n members.
-            unsafe { core::slice::from_raw_parts_mut(set, n) }
-        };
-        // SAFETY: the caller's digests and rooms.
-        unsafe {
-            super::init_event(
-                digest(cert_sha),
-                set,
-                digest(tree_root),
-                room(set_digest),
-                room(event),
-            )
-        }
-    }
-
-    /// # Safety
-    ///
-    /// `tag` is a C string, `cert_sha` a digest and `event` room for one.
-    pub unsafe extern "C" fn chain_key_event(
-        tag: *const c_char,
-        cert_sha: *const u8,
-        event: *mut u8,
-    ) -> c_int {
-        // SAFETY: the caller passes a C string, a digest and the room.
-        unsafe { super::key_event(CStr::from_ptr(tag), digest(cert_sha), room(event)) }
-    }
-
-    /// # Safety
-    ///
-    /// `tag` and `name` are C strings, `payload` a digest and `event`
-    /// room for one.
-    pub unsafe extern "C" fn chain_upatch_event(
-        tag: *const c_char,
-        name: *const c_char,
-        payload: *const u8,
-        event: *mut u8,
-    ) -> c_int {
-        // SAFETY: the caller passes two C strings, a digest and the room.
-        unsafe {
-            super::upatch_event(
-                CStr::from_ptr(tag),
-                CStr::from_ptr(name).to_bytes(),
-                digest(payload),
-                room(event),
-            )
-        }
-    }
-
-    /// # Safety
-    ///
-    /// `operation_digest` is a digest and `event` room for one.
-    pub unsafe extern "C" fn chain_tree_event(
-        seq: i64,
-        operation_digest: *const u8,
-        event: *mut u8,
-    ) -> c_int {
-        // SAFETY: the caller passes a digest and the room.
-        unsafe { super::tree_event(seq, digest(operation_digest), room(event)) }
     }
 
     /// # Safety

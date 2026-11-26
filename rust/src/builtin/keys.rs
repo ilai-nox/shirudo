@@ -25,7 +25,7 @@ use crate::sys::identity::Identity;
 use crate::sys::libc::{O_CLOEXEC, O_RDONLY, PATH_MAX, errno, fwrite, open, stdout, strerror};
 use crate::sys::openssl::{EVP_PKEY_get_base_id, X509_NAME_oneline};
 use crate::text::{cstr, name_has_suffix};
-use crate::util::chain::{chain_extend, chain_key_event};
+use crate::util::chain::{self, chain_extend};
 use crate::util::crypto_openssl::{
     Cert, cert_free, cert_key_algorithm, cert_read_der, cms_signed_by, complain_stack,
     key_type_name, openssl_complain, sha256, utc, x509_from_der_bio,
@@ -941,14 +941,7 @@ fn format_key_event(
 fn measure_revoke_locked(sha256: &[u8; 32], fp_hex: &[u8]) -> c_int {
     let (mut event, mut chain) = ([0u8; 32], [0u8; 32]);
 
-    // SAFETY: a C string, the digest and room for the event.
-    let ret = unsafe {
-        chain_key_event(
-            c"shirudo-key-revoke".as_ptr(),
-            sha256.as_ptr(),
-            event.as_mut_ptr(),
-        )
-    };
+    let ret = chain::key_event(c"shirudo-key-revoke", sha256, &mut event);
     if ret != 0 {
         error(&[
             b"keys revoke: cannot hash the revocation event: ",

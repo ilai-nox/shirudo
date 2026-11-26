@@ -29,7 +29,7 @@ use crate::util::bpm_tree_state::{
     selector_matches, state_read, state_write,
 };
 use crate::util::chain::{
-    chain_bound, chain_extend, chain_tree_event, history_step, memneq_explicit, sha256_parts,
+    self, chain_bound, chain_extend, history_step, memneq_explicit, sha256_parts,
 };
 use crate::util::eventlog;
 use crate::util::hex::sha256_digest_encode;
@@ -162,8 +162,7 @@ fn measure_locked(op: &TreeOperation, digest: &[u8; 32]) -> Result {
     let mut chain_hex = [0; 65];
     let mut line = [0u8; 4096];
 
-    // SAFETY: digests and room for them.
-    status(unsafe { chain_tree_event(op.seq, digest.as_ptr(), event.as_mut_ptr()) })?;
+    status(chain::tree_event(op.seq, digest, &mut event))?;
     let (len, chain_at) = prepare_tree_record(op, &event, &mut line)?;
     // SAFETY: event and room for the resulting register value.
     status(unsafe { chain_extend(event.as_ptr(), chain.as_mut_ptr()) })?;
