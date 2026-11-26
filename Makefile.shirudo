@@ -460,7 +460,7 @@ bpf/seal.lskel bpf/seal.skel.rs &: bpf/seal.bpf.o bpf/bpf2.bpf.o $(BPF_LSKEL_TOO
 	@printf '  LSKEL   bpf/seal.lskel\n'
 	$(Q)$(BPF_LSKEL_TOOL) $< seal --share bpf/bpf2.bpf.o --maps $(SEAL_SHARED_MAPS) \
 	    --rust bpf/seal.skel.rs -o bpf/seal.lskel
-bpf/bpf2.bpf.o: include/shirudo/pin_grant.h
+bpf/bpf2.bpf.o build/unit/pin_grant: include/shirudo/pin_grant.h
 
 # ----- version_id ------------------------------------------------
 

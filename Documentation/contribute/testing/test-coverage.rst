@@ -840,6 +840,13 @@ signed config image.
        reached through a link another user owns, or an auth file through
        a directory others can write that holds a link, is refused with
        its message before any request
+   * - ``t7115-bpm-package-uninstall``
+     - BPM installs a signed upatch from the fixture registry. With the
+       private bpffs bound over the package or its directives, or a
+       sealed directory bound over the directives, in a mount namespace
+       of root's, uninstall refuses and the pins, the archive and the
+       state stay. Without a bind it detaches the link and retires the
+       package tree, archive and state.
 
 ``otel`` (8)
 ~~~~~~~~~~~~
@@ -1031,7 +1038,8 @@ unit test refuses a world-writable BPM state file.
 
 C suites remain in :src:`testing/unit/` for C implementations that
 have not moved to Rust: ``jar``, ``java_agent``, ``kconfig``,
-``kernel_prereq``, ``log``, ``overflow`` and ``string``. The cases that
+``kernel_prereq``, ``log``, ``overflow``, ``pin_grant`` and ``string``.
+``pin_grant`` calls the deletion rule used by the BPF LSM directly. The cases that
 main added to the removed C suites still need Rust tests. ``jar`` covers
 stored and deflated Java agent manifests, missing or empty
 ``Premain-Class``, a value outside the main section, and truncations
