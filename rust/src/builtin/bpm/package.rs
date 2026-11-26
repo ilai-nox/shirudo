@@ -13,6 +13,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 
+use super::cleanup;
 use super::fetch::{self, sha256_file};
 use super::source::{self, Source};
 use super::{
@@ -83,11 +84,6 @@ pub(super) fn copy_file(src: &CStr, dst: &CStr, mode: u32, exclusive: bool) -> R
         remove(dst);
     }
     ret
-}
-
-/// Removes the tree at `path`, its links and not what they point at.
-fn remove_tree(path: &CStr) -> Result {
-    fs::remove_dir_all(os(path)).map_err(os_err)
 }
 
 fn member_names(entries: fs::ReadDir, kind: UpatchMember) -> impl Iterator<Item = OsString> {
@@ -216,8 +212,21 @@ pub(super) fn package_install(s: &Source, entry: &IndexEntry, old: Option<&[u8]>
         if let Some(archive) = &staging.archive {
             remove(archive);
         }
-        if let (true, Some(dir)) = (staging.extracted, &staging.package_dir) {
-            let _ = remove_tree(dir);
+        if staging.extracted {
+            let err = cleanup::remove_partial_version(cstr(&entry.name), cstr(&entry.version));
+            if let Err(err) = err
+                && err != -ENOENT
+            {
+                warn(&[
+                    b"bpm install: could not clean up ",
+                    staging
+                        .package_dir
+                        .as_ref()
+                        .map_or(&b"?"[..], |p| p.to_bytes()),
+                    b": ",
+                    super::strerr(-err),
+                ]);
+            }
         }
     }
     ret
@@ -318,40 +327,10 @@ fn stage_and_load(
     Ok(())
 }
 
-/// Detaches a package's upatches through the signed unload directives it
-/// shipped, in reverse name order, then removes the package tree. The
-/// caller drops the state entry only after this succeeded, so a failed
-/// detach leaves the package listed and loadable again.
+/// Detach the current version and remove its package through the state
+/// directory init recorded for this boot.
 fn package_uninstall(st: &BpmStateEntry) -> Result {
-    let updir = path(&[cstr(&st.path), b"/upatches"])?;
-    let mut unloads = Vec::new();
-
-    // A tree already gone, from an uninstall that died before it wrote
-    // the state, leaves nothing to unload: the retry converges.
-    match members(&updir, UpatchMember::Unload) {
-        Ok(found) => {
-            for (unload, _) in found {
-                if unloads.len() >= PATHS_MAX {
-                    return Err(-E2BIG);
-                }
-                unloads.push(unload);
-            }
-        }
-        Err(err) if err == -ENOENT => {}
-        Err(err) => return Err(err),
-    }
-    unloads.sort_by(|a, b| b.cmp(a));
-    for unload in &unloads {
-        if !remove_one(unload) {
-            error(&[b"bpm uninstall: unload ", unload.to_bytes(), b" failed"]);
-            return Err(-EIO);
-        }
-    }
-    let dir = path(&[PACKAGES_DIR.as_bytes(), b"/", cstr(&st.name)])?;
-    match remove_tree(&dir) {
-        Err(err) if err == -ENOENT => Ok(()),
-        ret => ret,
-    }
+    cleanup::uninstall(st)
 }
 
 /// `<source>/<name>[@<version>]`.

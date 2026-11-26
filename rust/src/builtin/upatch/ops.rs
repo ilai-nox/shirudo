@@ -19,6 +19,7 @@ use core::ffi::{CStr, c_char, c_int};
 use std::ffi::CString;
 use std::ffi::OsStr;
 use std::fs;
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::ffi::OsStrExt;
 
 use super::list::{BPFFS_UPATCHES_DIR, UPATCHES_DIR};
@@ -27,7 +28,7 @@ use crate::errno::{
     EACCES, EBADMSG, EINVAL, ENAMETOOLONG, ENODEV, ENOENT, ENOSPC, EOPNOTSUPP, EPERM, ESTALE,
 };
 use crate::heap::xfree;
-use crate::sys::libc::{close, errno, getxattr};
+use crate::sys::libc::{O_DIRECTORY, O_RDONLY, close, errno, getxattr};
 use crate::sys::upatch::UPATCH_INSTALL_TARGET_MISSING;
 use crate::sys::version::shirudo_version_id;
 use crate::text::cstr;
@@ -38,7 +39,8 @@ use crate::util::crypto_openssl::{Cert, cms_signed_by};
 use crate::util::eventlog;
 use crate::util::help::{Help, HelpSection};
 use crate::util::hex::hex_decode;
-use crate::util::io::read_file;
+use crate::util::identity;
+use crate::util::io::{open_beneath_same_mount, read_file};
 use crate::util::java_agent;
 use crate::util::json::JsonEmit;
 use crate::util::kernel_abi;
@@ -949,8 +951,21 @@ fn chain_category(err: c_int, measured: bool) -> &'static CStr {
 /// the copy archived all come from that one read. A copy on disk, under
 /// a name another command can take, or a file read again, could set them
 /// apart.
-fn read_artifact(file: &CStr, rep: &mut OpReport, op: &[u8]) -> Result<Upatch<'static>, ()> {
-    read(file).and_then(Upatch::from_vec).map_err(|err| {
+fn read_artifact(
+    file: &CStr,
+    fd: Option<BorrowedFd<'_>>,
+    rep: &mut OpReport,
+    op: &[u8],
+) -> Result<Upatch<'static>, ()> {
+    let opened = match fd {
+        Some(fd) => fd
+            .try_clone_to_owned()
+            .map(fs::File::from)
+            .map_err(|e| -e.raw_os_error().unwrap_or(EINVAL))
+            .and_then(|file| Upatch::read(&file)),
+        None => read(file).and_then(Upatch::from_vec),
+    };
+    opened.map_err(|err| {
         log_err(
             &[
                 b"upatch ",
@@ -1008,7 +1023,7 @@ fn load_steps(a: &OpArgs, file: &CStr, rep: &mut OpReport, name_out: &mut CStrin
     if version_gate(a, rep, b"load").is_err() {
         return 1;
     }
-    let Ok(u) = read_artifact(file, rep, b"load") else {
+    let Ok(u) = read_artifact(file, None, rep, b"load") else {
         return 1;
     };
     let name = u.name().to_vec();
@@ -1161,6 +1176,10 @@ pub(super) fn run_load(args: &[&CStr]) -> c_int {
 
 /// `upatch unload`, from `unload` on.
 pub(super) fn run_unload(args: &[&CStr]) -> c_int {
+    run_unload_fd(args, None)
+}
+
+fn run_unload_fd(args: &[&CStr], fd: Option<BorrowedFd<'_>>) -> c_int {
     let a = match parse(args, true) {
         Ok(a) => a,
         Err(code) => return code,
@@ -1169,7 +1188,7 @@ pub(super) fn run_unload(args: &[&CStr]) -> c_int {
     let mut rep = OpReport::new(c"upatch_unload");
     rep.path = Some(file.to_owned());
     let mut name = CString::default();
-    let ret = unload_steps(&a, file, &mut rep, &mut name);
+    let ret = unload_steps(&a, file, fd, &mut rep, &mut name);
     if ret != 0 {
         let message = cstr(bytes_of(&rep.message));
         log_err(
@@ -1303,14 +1322,20 @@ fn java_unload_locked(
     0
 }
 
-fn unload_steps(a: &OpArgs, file: &CStr, rep: &mut OpReport, name_out: &mut CString) -> c_int {
+fn unload_steps(
+    a: &OpArgs,
+    file: &CStr,
+    fd: Option<BorrowedFd<'_>>,
+    rep: &mut OpReport,
+    name_out: &mut CString,
+) -> c_int {
     if version_gate(a, rep, b"unload").is_err() {
         return 1;
     }
     // Read once, as a load is: the target and the payload the kernel's
     // signature check covers must be the bytes acted on after it, and a
     // file of root's is root's to rewrite between the two.
-    let Ok(u) = read_artifact(file, rep, b"unload") else {
+    let Ok(u) = read_artifact(file, fd, rep, b"unload") else {
         return 1;
     };
     if !u.is_unload() {
@@ -1595,7 +1620,49 @@ pub(crate) fn install(path: &CStr) -> c_int {
 
 /// A removal from a package: the unload directive at `path`.
 pub(crate) fn remove(path: &CStr) -> c_int {
-    run_unload(&[c"unload", c"--no-precheck", path])
+    run_unload_fd(&[c"unload", c"--no-precheck", path], None)
+}
+
+/// Remove a package member through the file already checked and held open.
+pub(crate) fn remove_fd(path: &CStr, fd: BorrowedFd<'_>) -> c_int {
+    run_unload_fd(&[c"unload", c"--no-precheck", path], Some(fd))
+}
+
+/// Check whether an old load member without an unload directive is active.
+/// Only the header is parsed here; this does not authorize loading it.
+pub(crate) fn member_active_fd(fd: BorrowedFd<'_>) -> c_int {
+    let file = match fd.try_clone_to_owned() {
+        Ok(fd) => fs::File::from(fd),
+        Err(e) => return -e.raw_os_error().unwrap_or(EINVAL),
+    };
+    let u = match Upatch::read(&file) {
+        Ok(u) => u,
+        Err(err) => return err,
+    };
+    let name = u.name();
+    if u.is_unload() || !u.name_signed() || !name_valid(Some(name)) {
+        return -EINVAL;
+    }
+    if u.hdr.ty == TYPE_JAVA {
+        return match purge_is_loaded(name, TYPE_JAVA) {
+            Ok(active) => i32::from(active),
+            Err(err) => err,
+        };
+    }
+    let root = match identity::bpffs_root_open() {
+        Ok(fd) => fd,
+        Err(err) if err == -ENOENT => return -ENODEV,
+        Err(err) => return err,
+    };
+    let rel = match CString::new([b"upatches/".as_slice(), &pin_name(name)].concat()) {
+        Ok(rel) => rel,
+        Err(_) => return -EINVAL,
+    };
+    match open_beneath_same_mount(root.as_raw_fd(), &rel, O_RDONLY | O_DIRECTORY) {
+        Ok(_) => 1,
+        Err(err) if err == -ENOENT => 0,
+        Err(err) => err,
+    }
 }
 
 /// Detaches, unpins and unarchives upatch `name` without a directive,

@@ -10,15 +10,16 @@ use core::ffi::{CStr, c_char, c_int, c_long, c_ulong};
 #[cfg(not(miri))]
 pub use libc::explicit_bzero;
 pub use libc::{
-    _exit, access, calloc, close, closedir, execv, execvp, faccessat, fchmod, fclose, fcntl,
-    fdopen, fdopendir, ferror, fgetxattr, flock, fputc, fputs, free, fsetxattr, fstatfs, fstatvfs,
-    fsync, ftruncate, fwrite, getenv, geteuid, gethostname, getline, getrandom, getsockopt,
-    getxattr, gmtime_r, if_indextoname, ioctl, lgetxattr, link, lseek, lsetxattr, memfd_create,
-    mkdirat, mkdtemp, mknod, mkstemp, mkstemps, mlockall, mount, open, openat, opendir, openlog,
-    personality, posix_memalign, prctl, pread, printf, putchar, read, readdir, readlinkat, recvmsg,
-    renameat, rmdir, sendto, setenv, setitimer, setrlimit, setsockopt, setxattr, snprintf, socket,
-    statfs, statvfs, statx, strcasecmp, strerror, strftime, strlen, strnlen, strptime, syscall,
-    sysconf, syslog, timegm, umount2, uname, unlink, unlinkat, unsetenv, write,
+    _exit, AT_REMOVEDIR, access, calloc, close, closedir, execv, execvp, faccessat, fchmod, fclose,
+    fcntl, fdopen, fdopendir, ferror, fgetxattr, flock, fputc, fputs, free, fsetxattr, fstatfs,
+    fstatvfs, fsync, ftruncate, fwrite, getenv, geteuid, gethostname, getline, getrandom,
+    getsockopt, getxattr, gmtime_r, if_indextoname, ioctl, lgetxattr, link, lseek, lsetxattr,
+    memfd_create, mkdirat, mkdtemp, mknod, mkstemp, mkstemps, mlockall, mount, open, openat,
+    opendir, openlog, personality, posix_memalign, prctl, pread, printf, putchar, read, readdir,
+    readlinkat, recvmsg, renameat, rmdir, sendto, setenv, setitimer, setrlimit, setsockopt,
+    setxattr, snprintf, socket, statfs, statvfs, statx, strcasecmp, strerror, strftime, strlen,
+    strnlen, strptime, syscall, sysconf, syslog, timegm, umount2, uname, unlink, unlinkat,
+    unsetenv, write,
 };
 
 /// explicit_bzero(3), for Miri, which cannot call the C library: the `n`

@@ -5,6 +5,7 @@
 //! their signing certificates and the signed upatch tree a target
 //! syncs. What only an operator runs goes to shirudo-build.
 
+mod cleanup;
 mod cli;
 mod fetch;
 mod info;
