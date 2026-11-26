@@ -1919,7 +1919,7 @@ R22 Labeled inodes are interchangeable
    its own, root can bind one labeled inode over another sealed path
    for a shirudo command it runs there. U9 is one consequence; others
    are a hidden eventlog, which makes measuring commands fail, and
-   package or tree state read from the wrong file. What root can bind is
+   tree state read from the wrong file. What root can bind is
    what shirudo labeled: no target command writes a temporary file,
    which a sealed directory bound over ``/tmp`` would have labeled with
    content from a registry (``t7002``). This is a reading of
@@ -1932,9 +1932,15 @@ R22 Labeled inodes are interchangeable
    then measures an upatch nothing runs. The register lock is the root
    of the private bpffs, which takes no mount and no entry from root, so
    a command in any namespace waits for the same inode (``t6128``). The
-   bpm lock, ``locks/bpm.lock``, still rests on a label: two package or
-   tree commands under a decoy can interleave their own state, while
-   each step they measure still waits for the register lock.
+   BPM commands on an enforcing target lock the state root directory
+   itself. Init records its device and inode in the frozen identity map
+   before enforcement starts. BPM checks those values on the opened
+   directory, which must also carry the seal and be outside bpffs. It
+   reads and replaces package state relative to that directory. Uninstall
+   holds each directive open while it verifies and applies it, and removes
+   package files relative to opened directories. These lookups refuse
+   mounts below the state root, including binds on the same file system.
+   Failed-install cleanup uses the same directory-relative removal.
 
 R23 Policy labels follow the inode
    A policy label is an xattr of the executable's inode, applied at

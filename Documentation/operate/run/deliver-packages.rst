@@ -438,9 +438,10 @@ runtime drop-ins (:ref:`unit-drop-ins`). An enforcing target refuses
 that binary, so without the drop-ins nothing is delivered.
 
 ``bpm install``, ``upgrade``, ``uninstall``, ``repo update`` and
-``tree sync`` take ``/var/lib/shirudo/locks/bpm.lock`` and wait for it
-without a time limit. Every ``shirudo`` command on a target also holds
-the config operation lock for its whole run, and a command that waits
+``tree sync`` lock the state directory verified against the boot record
+on an enforcing target and wait without a time limit. Every ``shirudo``
+command on a target also holds the config operation lock for its whole
+run, and a command that waits
 longer than 30 seconds for it fails. A long download therefore delays
 the status keepalive and the map export, and a keepalive can fail while
 it runs. :doc:`/operate/troubleshoot/troubleshooting` has the message.

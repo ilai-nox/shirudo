@@ -1020,6 +1020,12 @@ The unit tests beside the Rust modules cover 32 modules in
 :src:`rust/src/text.rs` and the quote checks in
 :src:`rust/src/quote_check.rs`.
 
+The tests in :src:`rust/src/builtin/bpm/cleanup/tests.rs` check that
+uninstall holds each directive open through detach, removes older package
+versions, refuses an active load without its directive, and can retry a
+partial removal. A bind-mount test for the same-mount open helper runs
+when the test process can make a private mount namespace.
+
 C suites remain in :src:`testing/unit/` for C implementations that
 have not moved to Rust: ``jar``, ``java_agent``, ``kconfig``,
 ``kernel_prereq``, ``log``, ``overflow`` and ``string``. The cases that
