@@ -5,13 +5,15 @@
 //! them.
 
 use core::ffi::{CStr, c_int};
+use std::os::fd::AsFd;
 
-use crate::errno::{E2BIG, EINVAL, ENOENT};
-use crate::sys::libc::PATH_MAX;
+use crate::errno::{E2BIG, EINVAL, ENODEV, ENOENT};
+use crate::sys::libc::{O_DIRECTORY, O_NONBLOCK, O_RDONLY, PATH_MAX};
 use crate::text::{cstr, strsprintf};
 use crate::util::bpm_oci::{MAX_NAME, name_ok, version_ok};
 use crate::util::json::{JsonEmit, JsonField, parse_schema};
 use crate::util::seal;
+use crate::util::{identity, io};
 
 /// `BPM_MAX_STATE`: the most packages the state records.
 const MAX_STATE: c_int = 256;
@@ -135,10 +137,24 @@ fn emit(st: &[BpmStateEntry], buf: &mut [u8], len: &mut usize) -> c_int {
     0
 }
 
+fn read_state_file() -> Result<Vec<u8>, c_int> {
+    let active = identity::enforcement_active();
+    if active < 0 {
+        return Err(active);
+    }
+    if active == 0 {
+        return io::read(STATE_PATH, STATE_FILE_MAX);
+    }
+    let root = identity::state_root_open().map_err(|e| if e == -ENOENT { -ENODEV } else { e })?;
+    let bpm = seal::open_child(root.as_fd(), c"bpm", O_RDONLY | O_DIRECTORY)?;
+    let state = seal::open_child(bpm.as_fd(), c"state.json", O_RDONLY | O_NONBLOCK)?;
+    io::read_whole(state.as_fd(), STATE_FILE_MAX)
+}
+
 /// The recorded entries, as many as `st` holds; none when there is no
 /// state yet.
 fn read(st: &mut [BpmStateEntry], n: &mut c_int) -> c_int {
-    let body = match crate::util::io::read(STATE_PATH, STATE_FILE_MAX) {
+    let body = match read_state_file() {
         Ok(body) => body,
         Err(err) if err == -ENOENT => {
             *n = 0;

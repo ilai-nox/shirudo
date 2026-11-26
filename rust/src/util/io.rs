@@ -42,6 +42,7 @@ const TRUSTED_LINKS_MAX: usize = 40;
 /// Reopens after the first open of a trusted name.
 const TRUSTED_REOPENS: usize = 3;
 
+const RESOLVE_NO_XDEV: u64 = 0x01;
 const RESOLVE_BENEATH: u64 = 0x08;
 
 /// `struct open_how`.
@@ -285,10 +286,23 @@ pub(crate) fn append_line(fd: BorrowedFd<'_>, path: &CStr, line: &[u8]) -> Resul
 /// close-on-exec, through no symlink, no magic link and nothing outside
 /// it: -EINVAL for an empty or absolute `rel`, or -errno.
 pub(crate) fn open_beneath(dirfd: c_int, rel: &CStr, flags: c_int) -> Result<OwnedFd, c_int> {
+    open_resolved(dirfd, rel, flags, 0)
+}
+
+/// As open_beneath, also refusing a mount or bind mount below dirfd.
+pub(crate) fn open_beneath_same_mount(
+    dirfd: c_int,
+    rel: &CStr,
+    flags: c_int,
+) -> Result<OwnedFd, c_int> {
+    open_resolved(dirfd, rel, flags, RESOLVE_NO_XDEV)
+}
+
+fn open_resolved(dirfd: c_int, rel: &CStr, flags: c_int, resolve: u64) -> Result<OwnedFd, c_int> {
     let how = OpenHow {
         flags: flags as u64 | O_CLOEXEC as u64,
         mode: 0,
-        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS,
+        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | resolve,
     };
 
     if dirfd < 0 || matches!(rel.to_bytes().first(), None | Some(b'/')) {

@@ -339,6 +339,13 @@ impl Attached {
             Ok(m) => id.run_dev = kernel_dev(std::os::unix::fs::MetadataExt::dev(&m)),
             Err(e) => return -e.raw_os_error().unwrap_or(crate::errno::EIO),
         }
+        match std::fs::metadata(super::path(super::VAR_LIB.to_bytes())) {
+            Ok(m) => {
+                id.state_dev = std::os::unix::fs::MetadataExt::dev(&m);
+                id.state_ino = std::os::unix::fs::MetadataExt::ino(&m);
+            }
+            Err(e) => return -e.raw_os_error().unwrap_or(crate::errno::EIO),
+        }
         let Some(root) = image_runtime::runtime_root() else {
             return -crate::errno::EINVAL;
         };

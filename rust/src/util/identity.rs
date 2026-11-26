@@ -9,10 +9,11 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
 use crate::errno::{EINVAL, ENOSYS, EPROTO, EXDEV};
 use crate::sys::identity::Identity;
-use crate::sys::libc::{O_CLOEXEC, O_DIRECTORY, O_RDONLY, errno, open, prctl};
+use crate::sys::libc::{O_CLOEXEC, O_DIRECTORY, O_RDONLY, S_IFDIR, S_IFMT, errno, open, prctl};
 use crate::util::bpf_sys::{bpf_map_lookup_elem, obj_get, obj_get_at};
 use crate::util::image_guards::{GUARD_IDENTITY, GUARD_MAPS, guard_map_check};
 use crate::util::io::{kernel_dev, stat_fd};
+use crate::util::seal;
 
 /// IDENTITY_PIN of util/paths.h.
 pub(crate) const IDENTITY_PIN: &CStr = c"/run/shirudo/bpffs/identity";
@@ -76,7 +77,7 @@ pub(crate) fn read_at(dir: BorrowedFd<'_>, name: &CStr, out: &mut Identity) -> c
 /// The private bpffs root, checked against the device init froze in its
 /// identity map. A mount over /run/shirudo may hide that root; it does
 /// not make another directory into this boot's bpffs.
-pub(crate) fn bpffs_root_open() -> Result<OwnedFd, c_int> {
+fn bpffs_open_identity() -> Result<(OwnedFd, Identity), c_int> {
     // SAFETY: a C path, flags without a creation mode.
     let fd = unsafe { open(BPFFS_DIR.as_ptr(), O_RDONLY | O_DIRECTORY | O_CLOEXEC) };
     if fd < 0 {
@@ -94,6 +95,28 @@ pub(crate) fn bpffs_root_open() -> Result<OwnedFd, c_int> {
     if dev != id.sb_dev {
         return Err(-EXDEV);
     }
+    Ok((fd, id))
+}
+
+pub(crate) fn bpffs_root_open() -> Result<OwnedFd, c_int> {
+    bpffs_open_identity().map(|(fd, _)| fd)
+}
+
+/// Require the opened state root to be the directory init recorded.
+pub(crate) fn check_state_root(id: &Identity, fd: BorrowedFd<'_>) -> Result<(), c_int> {
+    let st = stat_fd(fd)?;
+    let dev = libc::makedev(st.stx_dev_major, st.stx_dev_minor);
+    if st.stx_mode & S_IFMT != S_IFDIR || dev != id.state_dev || st.stx_ino != id.state_ino {
+        return Err(-EXDEV);
+    }
+    Ok(())
+}
+
+/// The writable state directory init sealed and recorded for this boot.
+pub(crate) fn state_root_open() -> Result<OwnedFd, c_int> {
+    let (_, id) = bpffs_open_identity()?;
+    let fd = seal::open_state_root()?;
+    check_state_root(&id, fd.as_fd())?;
     Ok(fd)
 }
 

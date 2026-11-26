@@ -17,16 +17,19 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 
 use crate::errno::{
-    EEXIST, EINVAL, ELOOP, ENAMETOOLONG, ENODATA, ENOENT, ENOTDIR, EOPNOTSUPP, EPERM, ERANGE, text,
+    EEXIST, EINVAL, ELOOP, ENAMETOOLONG, ENODATA, ENOENT, ENOTDIR, EOPNOTSUPP, EPERM, ERANGE,
+    EXDEV, text,
 };
-use crate::sys::libc::Zeroed;
 use crate::sys::libc::{
     AT_FDCWD, AT_SYMLINK_NOFOLLOW, O_APPEND, O_CLOEXEC, O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW,
     O_NONBLOCK, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, S_IFMT, S_IFREG, STATX_BASIC_STATS, Statx,
-    fchmod, fgetxattr, fsetxattr, fsync, ftruncate, lgetxattr, lsetxattr, mkdirat, openat,
+    fchmod, fgetxattr, fsetxattr, fstatfs, fsync, ftruncate, lgetxattr, lsetxattr, mkdirat, openat,
     renameat, statx, unlinkat,
 };
-use crate::util::io::{append_line, close_checked, lock_exclusive, stat_fd, write_complete};
+use crate::sys::libc::{Statfs, Zeroed};
+use crate::util::io::{
+    append_line, close_checked, lock_exclusive, open_beneath_same_mount, stat_fd, write_complete,
+};
 
 /// XATTR_SEAL: the attribute bpf/seal.c reads.
 pub(crate) const XATTR: &CStr = c"security.bpf.shirudo";
@@ -35,6 +38,7 @@ pub(crate) const LABEL: &CStr = c"94442b45cfcdc59aabc2a91364ed2ae129418e05a5c198
 const LABEL_LEN: usize = LABEL.to_bytes().len();
 /// VAR_LIB: the root of shirudo's sealed state.
 const VAR_LIB: &CStr = c"/var/lib/shirudo";
+const BPF_FS_MAGIC: i64 = 0xcafe_4a11;
 const PATH_MAX: usize = 4096;
 const NAME_MAX: usize = 255;
 
@@ -465,6 +469,41 @@ fn open_dir(path: &[u8], create: bool, mode: u32) -> Result<OwnedFd, c_int> {
         labelled?;
     }
     Ok(dir)
+}
+
+/// The sealed state root itself. The initrd may bind this directory
+/// across file systems, so only the opened root is checked here.
+pub(crate) fn open_state_root() -> Result<OwnedFd, c_int> {
+    let fd = open_dir(VAR_LIB.to_bytes(), false, 0)?;
+    let mut fs = Statfs::zeroed();
+    // SAFETY: the opened directory and room for its file system status.
+    if unsafe { fstatfs(fd.as_raw_fd(), &mut fs) } != 0 {
+        return Err(-errno());
+    }
+    if fs.f_type == BPF_FS_MAGIC {
+        return Err(-EXDEV);
+    }
+    if fget(fd.as_fd())?.is_none_or(|value| value.as_slice() != LABEL.to_bytes()) {
+        return Err(-EPERM);
+    }
+    Ok(fd)
+}
+
+/// One named child on the same mount, bearing the parent's seal.
+pub(crate) fn open_child(
+    parent: BorrowedFd<'_>,
+    name: &CStr,
+    flags: c_int,
+) -> Result<OwnedFd, c_int> {
+    if name.to_bytes().is_empty()
+        || name.to_bytes().contains(&b'/')
+        || matches!(name.to_bytes(), b"." | b"..")
+    {
+        return Err(-EINVAL);
+    }
+    let fd = open_beneath_same_mount(parent.as_raw_fd(), name, flags)?;
+    same(parent, fd.as_fd())?;
+    Ok(fd)
 }
 
 /// The directory that holds `path`, opened as [`open_dir`] does, and the

@@ -17,7 +17,7 @@ use core::ffi::{CStr, c_char, c_int};
 use core::ptr;
 use std::ffi::CString;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 
 use crate::errno::{EINVAL, EIO, ENAMETOOLONG};
 use crate::ffi;
@@ -27,6 +27,8 @@ use crate::sys::libc::{
     Dir, File, LOCK_UN, PATH_MAX, closedir, errno, fclose, fdopen, fdopendir, flock, fwrite,
     opendir, readdir, stdout, strerror, unlink,
 };
+use crate::util::identity;
+use crate::util::io::lock_exclusive;
 use crate::util::io::read_text_line;
 use crate::util::seal;
 
@@ -134,8 +136,17 @@ impl Drop for Lock {
 }
 
 fn lock() -> Result<Lock> {
-    seal::mkdir_p(LOCKS_DIR.to_bytes(), 0o700)?;
-    seal::lock(LOCK_PATH.to_bytes()).map(Lock)
+    let active = identity::enforcement_active();
+    if active < 0 {
+        return Err(active);
+    }
+    if active == 0 {
+        seal::mkdir_p(LOCKS_DIR.to_bytes(), 0o700)?;
+        return seal::lock(LOCK_PATH.to_bytes()).map(Lock);
+    }
+    let fd = identity::state_root_open()?;
+    lock_exclusive(fd.as_fd())?;
+    Ok(Lock(fd))
 }
 
 /// The end of a command that set curl up: the lock released, curl torn
