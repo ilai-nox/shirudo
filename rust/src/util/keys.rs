@@ -488,10 +488,9 @@ fn candidates() -> Result<Vec<Candidate>, c_int> {
     Ok(cands)
 }
 
-/// Every .der under `<keys_dir>/trusted` read: the ones `revoked_dir`
-/// does not hold become candidates for admission, which needs the whole
-/// list first. -E2BIG for more than SCAN_MAX, or what reading one
-/// failed with.
+/// Read at most SCAN_MAX .der files under `<keys_dir>/trusted`, including
+/// revoked ones. Nonrevoked files become candidates for admission.
+/// -E2BIG when the scan limit is exceeded, or what reading a file failed with.
 fn scan_trusted(keys_dir: &[u8], revoked_dir: &CStr) -> Result<Vec<Candidate>, c_int> {
     let mut cands = candidates()?;
     let dir = path_of(&[keys_dir, b"/trusted"])?;
@@ -500,8 +499,8 @@ fn scan_trusted(keys_dir: &[u8], revoked_dir: &CStr) -> Result<Vec<Candidate>, c
         names => names?,
     };
 
-    for name in names {
-        if cands.len() >= SCAN_MAX {
+    for (index, name) in names.into_iter().enumerate() {
+        if index >= SCAN_MAX {
             return Err(-E2BIG);
         }
         let path = path_of(&[dir.to_bytes(), b"/", &name])?;
@@ -531,8 +530,11 @@ fn scan_trusted_at(keys: BorrowedFd<'_>) -> Result<Option<(OwnedFd, Vec<Candidat
         trusted => trusted?,
     };
 
-    for name in dir_names_at(trusted.as_fd(), is_der_name)? {
-        if cands.len() >= SCAN_MAX {
+    for (index, name) in dir_names_at(trusted.as_fd(), is_der_name)?
+        .into_iter()
+        .enumerate()
+    {
+        if index >= SCAN_MAX {
             return Err(-E2BIG);
         }
         let name = CString::new(name).map_err(|_| -EINVAL)?;

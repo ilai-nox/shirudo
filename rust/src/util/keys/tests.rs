@@ -276,6 +276,24 @@ fn a_scan_looks_at_scan_max_certificates() {
 }
 
 #[test]
+fn revoked_certificates_count_toward_both_scan_limits() {
+    let [a, b, c, ..] = signers();
+    let dir = keys_dir(a);
+    for i in 0..SCAN_MAX {
+        trust(&dir, &format!("copy{i:02}"), b, None);
+    }
+    trust(&dir, "a-revoked", c, None);
+    revoke(&dir, c);
+
+    assert_eq!(load(&dir.cpath("keys"), None, true).err(), Some(-E2BIG));
+    let keys = File::open(dir.join("keys")).unwrap();
+    assert_eq!(
+        load_image_at(&dir.cpath("keys/cert.der"), Some(keys.as_fd()), true).err(),
+        Some(-E2BIG)
+    );
+}
+
+#[test]
 fn read_der_wants_a_regular_file_of_one_to_der_max_bytes() {
     let dir = TempDir::new();
     std::fs::write(dir.join("empty"), b"").unwrap();
