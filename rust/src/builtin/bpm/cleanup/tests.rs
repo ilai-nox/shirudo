@@ -4,7 +4,7 @@
 use super::*;
 use std::cell::{Cell, RefCell};
 use std::fs::{self, File};
-use std::os::unix::fs::{FileExt, symlink};
+use std::os::unix::fs::{FileExt, PermissionsExt, symlink};
 
 use crate::testutil::TempDir;
 
@@ -145,10 +145,16 @@ fn unpaired_load_must_be_inactive() {
 fn retry_finishes_partly_removed_package() {
     let p = Package::new();
     p.put("sample/1/upatches/notes", b'n');
+    let calls = Cell::new(0);
+    let remove = |_: &CStr, _: BorrowedFd<'_>| {
+        calls.set(calls.get() + 1);
+        0
+    };
     assert_eq!(
-        uninstall_at(p.store.as_fd(), &p.state, &inactive, &removed),
+        uninstall_at(p.store.as_fd(), &p.state, &inactive, &remove),
         Ok(())
     );
+    assert_eq!(calls.get(), 0);
     p.gone();
 
     let p = Package::new();
@@ -158,6 +164,28 @@ fn retry_finishes_partly_removed_package() {
         Ok(())
     );
     p.gone();
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "openat2 is unavailable in Miri")]
+fn world_writable_held_directive_keeps_the_package() {
+    let p = Package::new();
+    let directive = "sample/1/upatches/z.unload.upatch";
+    p.put(directive, b'z');
+    fs::set_permissions(p.tmp.join(directive), fs::Permissions::from_mode(0o666)).unwrap();
+    let trusted = p.tmp.cpath("sample");
+    let remove = |path: &CStr, fd: BorrowedFd<'_>| {
+        io::read_fd_in(fd, path, 128, &[trusted.as_c_str()])
+            .map(|_| 0)
+            .unwrap_or_else(|err| err)
+    };
+
+    assert_eq!(
+        uninstall_at(p.store.as_fd(), &p.state, &inactive, &remove),
+        Err(-EIO)
+    );
+    assert!(p.tmp.join(directive).exists());
+    assert!(p.tmp.join("sample/1").exists());
 }
 
 #[test]

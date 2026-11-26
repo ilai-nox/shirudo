@@ -28,10 +28,12 @@ fn open_beneath_same_mount_refuses_a_bind() {
     // namespace; an unprivileged host run leaves the other cases active.
     // SAFETY: a query that takes no pointer.
     if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: bind mount test needs root");
         return;
     }
     // SAFETY: unshare changes only this test thread's mount namespace.
     if unsafe { libc::unshare(libc::CLONE_NEWNS) } != 0 {
+        eprintln!("skipped: bind mount test cannot create a mount namespace");
         return;
     }
     // SAFETY: the root mount and constant flags; no data argument.
@@ -318,6 +320,22 @@ fn fd_contents(fd: OwnedFd) -> Vec<u8> {
 
     file.read_to_end(&mut body).unwrap();
     body
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "uses host filesystem and libc")]
+fn state_descriptor_read_refuses_a_world_writable_file() {
+    let tree = TempDir::new();
+    make_dirs(&tree, "trusted/bpm", 0o700);
+    make_file(&tree, "trusted/bpm/state.json", b"state", 0o666);
+    let path = tree.cpath("trusted/bpm/state.json");
+    let prefix = tree.cpath("trusted");
+    let file = File::open(tree.join("trusted/bpm/state.json")).unwrap();
+
+    assert_eq!(
+        read_fd_in(file.as_fd(), &path, 128, &[prefix.as_c_str()]),
+        Err(-EPERM)
+    );
 }
 
 #[test]
