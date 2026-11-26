@@ -130,3 +130,83 @@ fn no_pin_directory_is_no_upatch() {
     );
     assert_eq!(seen, 0);
 }
+
+/// Names returned by one directory read without opening bpffs.
+fn entries(names: &[&[u8]]) -> Vec<io::Result<OsString>> {
+    use std::os::unix::ffi::OsStringExt;
+
+    names
+        .iter()
+        .map(|name| Ok(OsString::from_vec(name.to_vec())))
+        .collect()
+}
+
+fn read_fails_after_two_entries() -> Vec<io::Result<OsString>> {
+    let mut found = entries(&[b"alpha", b"beta"]);
+    found.push(Err(io::Error::from_raw_os_error(EIO)));
+    found
+}
+
+#[test]
+fn pin_entries_are_walked() {
+    let names: &[&[u8]] = &[b"link_0", b"link_2", b"alpha"];
+    let Ok(pins) = read_entries(entries(names)) else {
+        panic!("pin entries should be readable");
+    };
+    assert_eq!((pins.nr_links, pins.first_link, pins.last_link), (2, 0, 2));
+
+    let mut links = Vec::new();
+    assert_eq!(
+        each_link_from(c"/pins", entries(names), &mut |index, pin| {
+            links.push((index, pin.to_bytes().to_vec()));
+            0
+        }),
+        0
+    );
+    assert_eq!(
+        links,
+        [(0, b"/pins/link_0".to_vec()), (2, b"/pins/link_2".to_vec())]
+    );
+
+    let mut pinned = Vec::new();
+    assert_eq!(
+        each_pinned_from(entries(&[b"alpha", b"beta"]), &mut |name| {
+            pinned.push(name.to_vec());
+            0
+        }),
+        0
+    );
+    assert_eq!(pinned, [b"alpha".to_vec(), b"beta".to_vec()]);
+}
+
+#[test]
+fn a_failed_directory_read_is_an_error() {
+    assert_eq!(
+        read_entries(read_fails_after_two_entries()).err(),
+        Some(-EIO)
+    );
+    assert_eq!(
+        loaded_from_pins(read_entries(read_fails_after_two_entries())),
+        Err(-EIO)
+    );
+
+    let mut links = 0;
+    assert_eq!(
+        each_link_from(c"/pins", read_fails_after_two_entries(), &mut |_, _| {
+            links += 1;
+            0
+        }),
+        -EIO
+    );
+    assert_eq!(links, 0);
+
+    let mut pinned = 0;
+    assert_eq!(
+        each_pinned_from(read_fails_after_two_entries(), &mut |_| {
+            pinned += 1;
+            0
+        }),
+        -EIO
+    );
+    assert_eq!(pinned, 2);
+}
