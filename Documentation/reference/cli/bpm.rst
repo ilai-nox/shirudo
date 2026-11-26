@@ -112,10 +112,9 @@ Usage
      - no
      - no
 
-On an enforcing target, BPM locks the state directory whose device and
-inode init recorded at boot. Before enforcement it uses
-``/var/lib/shirudo/locks/bpm.lock``. A locked subcommand waits for the
-lock. The helper subcommands execute ``shirudo-build`` (see
+On an enforcing target the lock is an exclusive flock on the state directory
+whose device and inode init recorded at boot. Before enforcement BPM uses
+``/var/lib/shirudo/locks/bpm.lock``. A locked subcommand waits for it. The helper subcommands execute ``shirudo-build`` (see
 :doc:`shirudo`). ``shirudo bpm --help`` and ``--list-cmds`` show ``build``
 and ``push`` only where the helper resolves. Elsewhere they are unknown
 subcommands. ``config update``, ``tree append`` and ``tree show`` always
@@ -555,13 +554,14 @@ directives, loads the new one and restores the old one when that fails.
 run, so a new version in a registered index reaches every target that
 runs the timer.
 
-``uninstall <name>`` applies the installed version's unload directives in
-reverse name order. BPM opens each directive once and keeps that file open
-through verification and detach. An active load without its unload
-directive stops uninstall. A retry can finish after a partial removal.
-Successful uninstall removes the package directory, including older
-versions and archives. Uninstall and failed-install cleanup stay on the
-mount of the state directory recorded at boot.
+``uninstall <name>`` applies the package's shipped unload directives in
+reverse name order. BPM opens the directives from the installed version
+and reads each from the descriptor it checked. A missing directive for
+an active load stops uninstall. An interrupted uninstall can finish if
+the remaining load members are inactive or the directory is already
+empty. Successful uninstall removes the whole package directory,
+including archives and older versions left by upgrades. Uninstall and
+failed-install cleanup refuse to cross mounts below the state root.
 
 ``list`` prints the installed packages under the heading ``Installed
 packages:`` as a table with the columns ``NAME``, ``VERSION`` and
