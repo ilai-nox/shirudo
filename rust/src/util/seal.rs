@@ -489,21 +489,39 @@ pub(crate) fn open_state_root() -> Result<OwnedFd, c_int> {
     Ok(fd)
 }
 
+fn child_name_ok(name: &CStr) -> bool {
+    !name.to_bytes().is_empty()
+        && !name.to_bytes().contains(&b'/')
+        && !matches!(name.to_bytes(), b"." | b"..")
+}
+
 /// One named child on the same mount, bearing the parent's seal.
 pub(crate) fn open_child(
     parent: BorrowedFd<'_>,
     name: &CStr,
     flags: c_int,
 ) -> Result<OwnedFd, c_int> {
-    if name.to_bytes().is_empty()
-        || name.to_bytes().contains(&b'/')
-        || matches!(name.to_bytes(), b"." | b"..")
-    {
+    if !child_name_ok(name) {
         return Err(-EINVAL);
     }
     let fd = open_beneath_same_mount(parent.as_raw_fd(), name, flags)?;
     same(parent, fd.as_fd())?;
     Ok(fd)
+}
+
+/// Create a direct child directory if missing, then open only a sealed
+/// child on this mount. With enforcement active, inode_init_security gives
+/// new children the parent's label.
+pub(crate) fn open_or_create_child_dir(
+    parent: BorrowedFd<'_>,
+    name: &CStr,
+    mode: u32,
+) -> Result<OwnedFd, c_int> {
+    if !child_name_ok(name) {
+        return Err(-EINVAL);
+    }
+    mkdir_at(parent, name, mode)?;
+    open_child(parent, name, O_RDONLY | O_DIRECTORY)
 }
 
 /// The directory that holds `path`, opened as [`open_dir`] does, and the
@@ -760,24 +778,35 @@ pub(crate) fn mkdir_p(path: &[u8], mode: u32) -> Result<(), c_int> {
     open_dir(path, true, mode).map(drop)
 }
 
-/// `data` written whole to `path` through a labelled temporary file,
-/// synced and renamed into place.
-fn write_file_inner(path: &[u8], data: &[u8], mode: u32, exact: bool) -> Result<(), c_int> {
-    let (dir, name) = open_parent(path)?;
-    let tmp = [name, b".tmp"].concat();
+/// Write to a temporary child, seal it, then atomically replace `name`.
+/// An exclusive write discards a previous temporary file while the caller
+/// holds the directory lock.
+fn write_file_at(
+    dir: BorrowedFd<'_>,
+    name: &CStr,
+    data: &[u8],
+    mode: u32,
+    exact: bool,
+    exclusive: bool,
+) -> Result<(), c_int> {
+    let tmp = [name.to_bytes(), b".tmp"].concat();
     if tmp.len() > NAME_MAX {
         return Err(-ENAMETOOLONG);
     }
-    let (Ok(tmp), Ok(name)) = (CString::new(tmp), CString::new(name)) else {
-        return Err(-EINVAL);
-    };
-    let fd = open_at(
-        Some(dir.as_fd()),
-        &tmp,
-        O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-        mode,
-    )?;
-    let written = inherit(dir.as_fd(), fd.as_fd())
+    let tmp = CString::new(tmp).map_err(|_| -EINVAL)?;
+    if exclusive {
+        // SAFETY: the open directory and a NUL-terminated child name.
+        if unsafe { unlinkat(dir.as_raw_fd(), tmp.as_ptr(), 0) } != 0 {
+            let err = errno();
+            if err != ENOENT {
+                return Err(-err);
+            }
+        }
+    }
+    let flags =
+        O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW | if exclusive { O_EXCL } else { O_TRUNC };
+    let fd = open_at(Some(dir), &tmp, flags, mode)?;
+    let written = inherit(dir, fd.as_fd())
         .and_then(|()| {
             if !exact {
                 return Ok(());
@@ -792,12 +821,33 @@ fn write_file_inner(path: &[u8], data: &[u8], mode: u32, exact: bool) -> Result<
         .and_then(|()| sync(fd.as_fd()));
     let placed = written
         .and(close_checked(fd))
-        .and_then(|()| rename_at(dir.as_fd(), &tmp, &name))
-        .and_then(|()| sync(dir.as_fd()));
+        .and_then(|()| rename_at(dir, &tmp, name))
+        .and_then(|()| sync(dir));
     if placed.is_err() {
-        unlink_at(dir.as_fd(), &tmp);
+        unlink_at(dir, &tmp);
     }
     placed
+}
+
+/// Replace one named child while the caller holds the directory lock.
+pub(crate) fn replace_locked_at(
+    parent: BorrowedFd<'_>,
+    name: &CStr,
+    data: &[u8],
+    mode: u32,
+) -> Result<(), c_int> {
+    if !child_name_ok(name) {
+        return Err(-EINVAL);
+    }
+    write_file_at(parent, name, data, mode, false, true)
+}
+
+/// `data` written whole to `path` through a labelled temporary file,
+/// synced and renamed into place.
+fn write_file_inner(path: &[u8], data: &[u8], mode: u32, exact: bool) -> Result<(), c_int> {
+    let (dir, name) = open_parent(path)?;
+    let name = CString::new(name).map_err(|_| -EINVAL)?;
+    write_file_at(dir.as_fd(), &name, data, mode, exact, false)
 }
 
 /// As [`write_file`], forcing the final file to carry exactly `mode`,

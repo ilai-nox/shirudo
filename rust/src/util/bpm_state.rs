@@ -179,18 +179,28 @@ pub(crate) fn read_all() -> Result<Vec<BpmStateEntry>, c_int> {
     }
 }
 
+fn write_state_file(body: &[u8]) -> Result<(), c_int> {
+    let active = identity::enforcement_active();
+    if active < 0 {
+        return Err(active);
+    }
+    if active == 0 {
+        seal::mkdir_p(VAR_DIR.to_bytes(), 0o700)?;
+        return seal::write_file(STATE_PATH.to_bytes(), body, 0o600);
+    }
+    let root = identity::state_root_open()?;
+    let bpm = seal::open_or_create_child_dir(root.as_fd(), c"bpm", 0o700)?;
+    seal::replace_locked_at(bpm.as_fd(), c"state.json", body, 0o600)
+}
+
 pub(crate) fn write(st: &[BpmStateEntry]) -> c_int {
     let mut len = 0usize;
     let mut buf = vec![0u8; STATE_EMIT_MAX];
-    let mut ret = emit(st, &mut buf, &mut len);
-
-    if ret == 0 {
-        ret = seal::mkdir_p(VAR_DIR.to_bytes(), 0o700)
-            .and_then(|()| seal::write_file(STATE_PATH.to_bytes(), &buf[..len], 0o600))
-            .err()
-            .unwrap_or(0);
+    let ret = emit(st, &mut buf, &mut len);
+    if ret != 0 {
+        return ret;
     }
-    ret
+    write_state_file(&buf[..len]).err().unwrap_or(0)
 }
 
 #[cfg(test)]
