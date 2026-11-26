@@ -148,7 +148,7 @@ fn read_state_file() -> Result<Vec<u8>, c_int> {
     let root = identity::state_root_open().map_err(|e| if e == -ENOENT { -ENODEV } else { e })?;
     let bpm = seal::open_child(root.as_fd(), c"bpm", O_RDONLY | O_DIRECTORY)?;
     let state = seal::open_child(bpm.as_fd(), c"state.json", O_RDONLY | O_NONBLOCK)?;
-    io::read_whole(state.as_fd(), STATE_FILE_MAX)
+    io::read_fd(state.as_fd(), STATE_PATH, STATE_FILE_MAX)
 }
 
 /// The recorded entries, as many as `st` holds; none when there is no

@@ -40,7 +40,7 @@ use crate::util::eventlog;
 use crate::util::help::{Help, HelpSection};
 use crate::util::hex::hex_decode;
 use crate::util::identity;
-use crate::util::io::{open_beneath_same_mount, read_file};
+use crate::util::io::{open_beneath_same_mount, read_fd, read_file};
 use crate::util::java_agent;
 use crate::util::json::JsonEmit;
 use crate::util::kernel_abi;
@@ -958,11 +958,7 @@ fn read_artifact(
     op: &[u8],
 ) -> Result<Upatch<'static>, ()> {
     let opened = match fd {
-        Some(fd) => fd
-            .try_clone_to_owned()
-            .map(fs::File::from)
-            .map_err(|e| -e.raw_os_error().unwrap_or(EINVAL))
-            .and_then(|file| Upatch::read(&file)),
+        Some(fd) => read_fd(fd, file, UPATCH_FILE_MAX).and_then(Upatch::from_vec),
         None => read(file).and_then(Upatch::from_vec),
     };
     opened.map_err(|err| {

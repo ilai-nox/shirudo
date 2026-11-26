@@ -741,6 +741,30 @@ pub(crate) fn check_trusted(fd: BorrowedFd<'_>, path: &CStr) -> c_int {
     check_trusted_in(fd, path, trusted_dirs())
 }
 
+/// Read an opened regular file only after checking its owner, mode and
+/// path. The directory list lets tests use their own trusted tree.
+pub(crate) fn read_fd_in(
+    fd: BorrowedFd<'_>,
+    label: &CStr,
+    max: usize,
+    dirs: &[&CStr],
+) -> Result<Vec<u8>, c_int> {
+    let st = stat_fd(fd)?;
+    if st.stx_mode & S_IFMT != S_IFREG {
+        return Err(-EINVAL);
+    }
+    let ret = check_trusted_in(fd, label, dirs);
+    if ret != 0 {
+        return Err(ret);
+    }
+    read_whole(fd, max)
+}
+
+/// Read the file held by `fd` under its trusted path `label`.
+pub(crate) fn read_fd(fd: BorrowedFd<'_>, label: &CStr, max: usize) -> Result<Vec<u8>, c_int> {
+    read_fd_in(fd, label, max, trusted_dirs())
+}
+
 fn check_secret_in(fd: BorrowedFd<'_>, path: &CStr, dirs: &[&CStr]) -> c_int {
     if !trusted_place(path, dirs) {
         return 0;

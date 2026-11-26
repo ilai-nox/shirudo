@@ -1919,7 +1919,7 @@ R22 Labeled inodes are interchangeable
    its own, root can bind one labeled inode over another sealed path
    for a shirudo command it runs there. U9 is one consequence; others
    are a hidden eventlog, which makes measuring commands fail, and
-   tree state read from the wrong file. What root can bind is
+   package or tree state read from the wrong file. What root can bind is
    what shirudo labeled: no target command writes a temporary file,
    which a sealed directory bound over ``/tmp`` would have labeled with
    content from a registry (``t7002``). This is a reading of
@@ -1931,16 +1931,16 @@ R22 Labeled inodes are interchangeable
    decoy and undo the pins of a load still in flight in another, which
    then measures an upatch nothing runs. The register lock is the root
    of the private bpffs, which takes no mount and no entry from root, so
-   a command in any namespace waits for the same inode (``t6128``). The
-   BPM commands on an enforcing target lock the state root directory
-   itself. Init records its device and inode in the frozen identity map
-   before enforcement starts. BPM checks those values on the opened
-   directory, which must also carry the seal and be outside bpffs. It
-   reads and replaces package state relative to that directory. Uninstall
-   holds each directive open while it verifies and applies it, and removes
-   package files relative to opened directories. These lookups refuse
-   mounts below the state root, including binds on the same file system.
-   Failed-install cleanup uses the same directory-relative removal.
+   a command in any namespace waits for the same inode (``t6128``).
+   BPM commands on an enforcing target lock the state
+   root directory itself. Init records its device and inode in the frozen
+   identity map before enforcement starts. BPM verifies both on the open
+   directory, which also has to carry the seal and reside outside bpffs.
+   Package uninstall opens its directives and removes the package tree
+   relative to held directory descriptors. Those lookups and failed-install
+   cleanup reject mount crossings below the state root, including binds on
+   the same file system. BPM reads and replaces its package state file
+   relative to the verified BPM directory as well.
 
 R23 Policy labels follow the inode
    A policy label is an xattr of the executable's inode, applied at
